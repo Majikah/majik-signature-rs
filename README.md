@@ -1,8 +1,8 @@
 # Majik Signature (Rust)
 
 
-
 [![Developed by Zelijah](https://img.shields.io/badge/Developed%20by-Zelijah-red?logo=github&logoColor=white&style=for-the-badge)](https://thezelijah.world) ![GitHub Sponsors](https://img.shields.io/github/sponsors/jedlsf?style=for-the-badge&label=Sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2Fjedlsf)
+
 [![Crates.io](https://img.shields.io/crates/v/majik-signature.svg?logo=rust&color=D34516)](https://crates.io/crates/majik-signature) [![Documentation](https://docs.rs/majik-signature/badge.svg)](https://docs.rs/majik-signature) ![crates downloads](https://img.shields.io/crates/d/majik-signature?logo=rust&color=D34516) [![License](https://img.shields.io/badge/License-Apache_2.0-D34516.svg)](https://opensource.org/licenses/Apache-2.0) ![Rust](https://img.shields.io/badge/Rust-Ready-D34516) 
 
 [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksig-green?style=for-the-badge)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksig) [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksmap-green?style=for-the-badge)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksmap)
