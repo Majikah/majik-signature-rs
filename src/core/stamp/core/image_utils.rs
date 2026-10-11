@@ -60,7 +60,7 @@ pub fn encode_image(
                 .map_err(img_err)?;
         }
         ImageMimeType::Jpeg => {
-            let rgb: Vec<u8> = pixels.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+            let rgb: Vec<u8> = pixels.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
             let q = ((quality * 100.0).round() as i64).clamp(1, 100) as u8;
             JpegEncoder::new_with_quality(&mut out, q)
                 .write_image(&rgb, w, h, ColorType::Rgb8.into())

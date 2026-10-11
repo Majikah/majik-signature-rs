@@ -126,7 +126,7 @@ pub fn read_folder_files(root_path: &Path) -> CliOutcome<Vec<FolderFile>> {
     }
     let mut out = Vec::new();
     walk(&root, &root, &mut out)?;
-    out.sort_by(|a, b| a.relative_path.to_lowercase().cmp(&b.relative_path.to_lowercase()));
+    out.sort_by_key(|file| file.relative_path.to_lowercase());
     Ok(out)
 }
 
