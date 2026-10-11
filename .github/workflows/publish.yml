@@ -1,0 +1,73 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
+  slack:
+    name: Slack Notification
+    needs:
+      - ci
+      - publish
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Notify Slack
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+          SLACK_TITLE: >-
+            ${{ needs.ci.result != 'success'
+              && '❌ CI Failed'
+              || needs.publish.result != 'success'
+              && '❌ crates.io Publish Failed'
+              || '🚀 crates.io Publish Successful' }}
+            — ${{ github.repository }}
+
+          SLACK_COLOR: >-
+            ${{ needs.ci.result != 'success'
+              && 'danger'
+              || needs.publish.result != 'success'
+              && 'danger'
+              || 'good' }}
+
+          SLACK_MESSAGE: |
+            📦 Repository: ${{ github.repository }}
+            🏷️ Version: ${{ github.ref_name }}
+            🔀 Commit: ${{ github.sha }}
+
+            CI:
+            ${{ needs.ci.result == 'success' && '✅ Passed' || '❌ Failed' }}
+
+            crates.io Publish:
+            ${{ needs.publish.result == 'success'
+              && '✅ Published successfully'
+              || needs.publish.result == 'skipped'
+              && '⏭️ Not run because CI failed'
+              || '❌ Failed' }}
+
+            🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

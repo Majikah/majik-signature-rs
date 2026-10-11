@@ -1,0 +1,51 @@
+[package]
+name = "majik-signature"
+version = "0.10.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Hybrid post-quantum content signing and verification (Ed25519 + ML-DSA-87) for the Majikah ecosystem. Pure-Rust port of @majikah/majik-signature."
+repository = "https://github.com/Majikah/majik-signature-rs"
+keywords = ["post-quantum", "signature", "ed25519", "ml-dsa", "cryptography"]
+categories = ["cryptography"]
+readme = "README.md"
+homepage = "https://majikah.solutions"
+
+[lib]
+name = "majik_signature"
+crate-type = ["lib"]
+
+[dependencies]
+majik-key = "1.0.0"
+ed25519-dalek = "3"
+fips204 = "0.4.6"
+sha2 = "0.11"
+sha3 = "0.12"
+base64 = "0.23.1"
+hex = "0.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+zeroize = { version = "1.9.1", features = ["zeroize_derive"] }
+getrandom = "0.4.3"
+uuid = { version = "1", features = ["v4"] }
+jiff = "0.2.38"
+thiserror = "2.0.21"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+clap = { version = "4", features = ["derive"], optional = true }
+rpassword = { version = "7", optional = true }
+
+[features]
+default = []
+# Command-line tool `mjksig` (cargo install majik-signature --features cli)
+cli = ["dep:clap", "dep:rpassword"]
+
+[[bin]]
+name = "mjksig"
+path = "src/bin/mjksig.rs"
+required-features = ["cli"]
+
+[profile.test]
+opt-level = 3
+
+[profile.dev.package."*"]
+opt-level = 3
