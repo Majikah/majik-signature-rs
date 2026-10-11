@@ -4,7 +4,7 @@
 //! signing (Ed25519 + ML-DSA-87) for the Majikah ecosystem, built on [`majik_key`].
 //!
 //! Layout mirrors the TS source tree: `index.ts` → this file / `mod.rs`,
-//! `majik-signature.ts` → [`majik_signature`], `core/**` → [`core`], `anchor/**` → [`anchor`].
+//! `majik-signature.ts` → [`MajikSignature`], `core/**` → [`core`], `anchor/**` → [`anchor`].
 
 pub mod anchor;
 #[cfg(feature = "cli")]

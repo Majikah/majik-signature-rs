@@ -1,6 +1,6 @@
 [package]
 name = "majik-signature"
-version = "0.10.0"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Hybrid post-quantum content signing and verification (Ed25519 + ML-DSA-87) for the Majikah ecosystem. Pure-Rust port of @majikah/majik-signature."

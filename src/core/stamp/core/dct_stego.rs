@@ -103,7 +103,7 @@ pub fn js_round(x: f64) -> f64 {
 }
 
 fn clamp255(v: f64) -> f64 {
-    v.min(255.0).max(0.0)
+    v.clamp(0.0, 255.0)
 }
 
 struct Tables {
@@ -117,11 +117,11 @@ fn tables() -> &'static Tables {
         let n = 8usize;
         let mut cos = [[0.0f64; 8]; 8];
         let mut scale = [0.0f64; 8];
-        for k in 0..n {
-            for i in 0..n {
-                cos[k][i] = ((std::f64::consts::PI * k as f64 * (2 * i + 1) as f64) / (2 * n) as f64).cos();
+        for (k, (cos_row, scale_value)) in cos.iter_mut().zip(scale.iter_mut()).enumerate() {
+            for (i, value) in cos_row.iter_mut().enumerate() {
+                *value = ((std::f64::consts::PI * k as f64 * (2 * i + 1) as f64) / (2 * n) as f64).cos();
             }
-            scale[k] = if k == 0 { (1.0 / n as f64).sqrt() } else { (2.0 / n as f64).sqrt() };
+            *scale_value = if k == 0 { (1.0 / n as f64).sqrt() } else { (2.0 / n as f64).sqrt() };
         }
         Tables { cos, scale }
     })

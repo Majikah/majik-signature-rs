@@ -107,13 +107,13 @@ fn dct1d(signal: &[f64]) -> Vec<f64> {
     let n = signal.len();
     let mut out = vec![0.0f64; n];
     let pi_over_2n = std::f64::consts::PI / (2 * n) as f64;
-    for k in 0..n {
+    for (k, value) in out.iter_mut().enumerate() {
         let mut sum = 0.0;
         for (i, s) in signal.iter().enumerate() {
             sum += s * (pi_over_2n * k as f64 * (2 * i + 1) as f64).cos();
         }
         let scale = if k == 0 { (1.0 / n as f64).sqrt() } else { (2.0 / n as f64).sqrt() };
-        out[k] = scale * sum;
+        *value = scale * sum;
     }
     out
 }
