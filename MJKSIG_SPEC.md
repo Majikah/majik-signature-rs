@@ -26,7 +26,7 @@ MJKSIG relies on a hybrid signature model ensuring resilience against both class
 ### 2.1 Hybrid Signatures
 Every valid signatory entry within an MJKSIG envelope contains two distinct signatures:
 *   **Ed25519 Signature:** 64 bytes, stored as base64.
-*   **ML-DSA-87 Signature:** 4595 bytes, stored as base64.
+*   **ML-DSA-87 Signature:** 4627 bytes, stored as base64.
 
 Both algorithms sign the exact same **canonical payload** bytes. Verification requires **both** signatures to pass; if either fails, the entire signature is deemed invalid.
 
@@ -181,7 +181,7 @@ interface MajikSignatureJSON {
   /** Ed25519 signature over the canonical payload, base64 (64 bytes) */
   edSignature: ED25519Signature;
 
-  /** ML-DSA-87 signature over the canonical payload, base64 (4595 bytes) */
+  /** ML-DSA-87 signature over the canonical payload, base64 (4627 bytes) */
   mlDsaSignature: MLDSA87Signature;
 
   /** SHA-256 hash of the canonical allowlist JSON, base64 (44 chars). */
