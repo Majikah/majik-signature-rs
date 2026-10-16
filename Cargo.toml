@@ -1,6 +1,6 @@
 [package]
 name = "majik-signature"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Hybrid post-quantum content signing and verification (Ed25519 + ML-DSA-87) for the Majikah ecosystem. Pure-Rust port of @majikah/majik-signature."
@@ -15,7 +15,7 @@ name = "majik_signature"
 crate-type = ["lib"]
 
 [dependencies]
-majik-key = "1.0.0"
+majik-key = "1.1.1"
 ed25519-dalek = "3"
 fips204 = "0.4.6"
 sha2 = "0.11"
