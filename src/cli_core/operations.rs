@@ -228,7 +228,7 @@ fn sign_single_detached(
     }
     let output_path =
         o.output.as_deref().map(resolve_cli_path).unwrap_or_else(|| output_path_for_detached_file(input));
-    write_bytes(&output_path, &envelope.to_mjksig(), o.overwrite)?;
+    write_bytes(&output_path, &envelope.to_mjksig()?, o.overwrite)?;
     Ok(result(
         "sign",
         json!({
@@ -341,7 +341,7 @@ fn sign_folder_detached(
                 envelope = envelope.with_seal(key.fingerprint(), o.timestamp.as_deref())?;
             }
             let out_path = output_dir.join(format!("{}.mjksig", file.relative_path));
-            write_bytes(&out_path, &envelope.to_mjksig(), o.overwrite)
+            write_bytes(&out_path, &envelope.to_mjksig()?, o.overwrite)
         })();
         if let Err(e) = attempt {
             eprintln!("    ✘ {e}");
@@ -874,7 +874,7 @@ pub fn run_seal(o: &SealCliOptions) -> CliOutcome<CliResult> {
         if is_detached_ext(&input) {
             let envelope = MajikSignatureEnvelope::from_mjksig(&read_bytes(&input)?)?
                 .with_seal(key.fingerprint(), o.timestamp.as_deref())?;
-            write_bytes(&out_path, &envelope.to_mjksig(), o.overwrite || out_path == input)?;
+            write_bytes(&out_path, &envelope.to_mjksig()?, o.overwrite || out_path == input)?;
             return Ok(result(
                 "seal",
                 json!({"input": path_s(&input), "output": path_s(&out_path), "sealedBy": envelope.sealed_by(),

@@ -16,6 +16,7 @@ use crate::anchor::types::MajikChainAnchor;
 use crate::core::embed::canonical::{
     assert_canonical, no_signature_reason, prepare_detached_bytes, CanonicalResult, DetachedPrepareOptions,
 };
+use crate::core::embed::embedded_envelope_codec::{parse_embedded_envelope, serialize_embedded_envelope};
 use crate::core::embed::fallback::FallbackHandler;
 use crate::core::embed::handlers::*;
 use crate::core::embed::registry::FormatHandlerRegistry;
@@ -159,7 +160,7 @@ impl MajikSignatureEmbed {
         let envelope = Self::read_envelope(p.handler, p.bytes)?;
         let updated = envelope.with_signature(signature.clone())?;
         let stripped = p.handler.strip(p.bytes)?;
-        let result = p.handler.embed(&stripped, &updated.to_json_string())?;
+        let result = p.handler.embed(&stripped, &serialize_embedded_envelope(&updated)?)?;
         Ok(EmbedResult { blob: result, handler: p.handler.name().to_string(), mime_type: p.mime_type })
     }
 
@@ -216,7 +217,7 @@ impl MajikSignatureEmbed {
             envelope
         };
         let next = with_allowlist.with_file_version(new_entry)?.with_signature(signature.to_json())?;
-        let result = p.handler.embed(&original, &next.to_json_string())?;
+        let result = p.handler.embed(&original, &serialize_embedded_envelope(&next)?)?;
         Ok(SignAndEmbedResult {
             blob: result,
             handler: p.handler.name().to_string(),
@@ -232,7 +233,7 @@ impl MajikSignatureEmbed {
             p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()).ok_or_else(|| {
                 MajikSignatureError::new("priorSignedFile has no embedded signature envelope.")
             })?;
-        let mut envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let mut envelope = parse_embedded_envelope(&raw)?;
 
         let allowlist_integrity = envelope.verify_allowlist_integrity();
         if !allowlist_integrity.valid {
@@ -471,7 +472,7 @@ impl MajikSignatureEmbed {
                         })?;
                     }
                     _ => signatures
-                        .push(SeparateSignature { path: file.path.clone(), blob: envelope.to_mjksig() }),
+                        .push(SeparateSignature { path: file.path.clone(), blob: envelope.to_mjksig()? }),
                 }
                 Ok(())
             })();
@@ -552,7 +553,7 @@ impl MajikSignatureEmbed {
     pub fn extract(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<ExtractResult>> {
         let p = Self::prepare_mime(file, options.and_then(|o| o.mime_type.as_deref()));
         let Some(raw) = p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()) else { return Ok(None) };
-        let envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let envelope = parse_embedded_envelope(&raw)?;
         Ok(Some(ExtractResult { envelope, handler: p.handler.name().to_string() }))
     }
 
@@ -569,7 +570,7 @@ impl MajikSignatureEmbed {
         let Some(raw) = p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()) else {
             return Ok(vec![Self::no_signature_result(Some(no_signature_reason(p.handler, p.bytes)))]);
         };
-        let envelope = match MajikSignatureEnvelope::from_json_str(&raw) {
+        let envelope = match parse_embedded_envelope(&raw) {
             Ok(e) => e,
             Err(_) => return Ok(vec![Self::failure("Embedded signature payload is malformed")]),
         };
@@ -617,7 +618,7 @@ impl MajikSignatureEmbed {
             p.bytes,
             &DetachedPrepareOptions {
                 require_canonical: options.require_canonical,
-                validate_envelope: &|raw| MajikSignatureEnvelope::from_json_str(raw).map(|_| ()),
+                validate_envelope: &|raw| parse_embedded_envelope(raw).map(|_| ()),
             },
         )?;
         let original = match prepared {
@@ -778,7 +779,7 @@ impl MajikSignatureEmbed {
 
         let (envelope, original) = match &raw {
             Some(raw) => {
-                let envelope = MajikSignatureEnvelope::from_json_str(raw)?;
+                let envelope = parse_embedded_envelope(raw)?;
                 let integrity = envelope.verify_allowlist_integrity();
                 if !integrity.valid {
                     return Err(MajikSignatureError::new(
@@ -822,7 +823,7 @@ impl MajikSignatureEmbed {
             p.bytes,
             &DetachedPrepareOptions {
                 require_canonical: false,
-                validate_envelope: &|raw| MajikSignatureEnvelope::from_json_str(raw).map(|_| ()),
+                validate_envelope: &|raw| parse_embedded_envelope(raw).map(|_| ()),
             },
         )?;
         let original = match prepared {
@@ -849,7 +850,7 @@ impl MajikSignatureEmbed {
             p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()).ok_or_else(|| {
                 MajikSignatureError::new("Cannot verify chain — no embedded envelope found.")
             })?;
-        let envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let envelope = parse_embedded_envelope(&raw)?;
         let original = match assert_canonical(p.handler, p.bytes, &raw) {
             CanonicalResult::Ok { original } => original,
             CanonicalResult::Err { reason } => return Err(MajikSignatureError::new(reason)),
@@ -876,7 +877,7 @@ impl MajikSignatureEmbed {
         let raw = p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()).ok_or_else(|| {
             MajikSignatureError::new("Cannot verify revisions — no embedded envelope found.")
         })?;
-        let envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let envelope = parse_embedded_envelope(&raw)?;
         let chain = envelope.file_versions();
         if chain.is_empty() {
             return Err(MajikSignatureError::new("This file has no fileVersions chain to verify against."));
@@ -999,10 +1000,10 @@ impl MajikSignatureEmbed {
             p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()).ok_or_else(|| {
                 MajikSignatureError::new("Cannot seal an unsigned file — no envelope found.")
             })?;
-        let envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let envelope = parse_embedded_envelope(&raw)?;
         let sealed = envelope.with_seal(key.fingerprint(), timestamp)?;
         let original = p.handler.strip(p.bytes)?;
-        let result = p.handler.embed(&original, &sealed.to_json_string())?;
+        let result = p.handler.embed(&original, &serialize_embedded_envelope(&sealed)?)?;
         Ok(SealResult {
             blob: result,
             seal_info: sealed.get_seal_info().expect("freshly sealed envelope has seal info"),
@@ -1110,10 +1111,10 @@ impl MajikSignatureEmbed {
                 "Cannot register a chain anchor on an unsigned file — no envelope found.",
             )
         })?;
-        let envelope = MajikSignatureEnvelope::from_json_str(&raw)?;
+        let envelope = parse_embedded_envelope(&raw)?;
         let next = envelope.with_chain_anchor(anchor)?;
         let original = p.handler.strip(p.bytes)?;
-        let result = p.handler.embed(&original, &next.to_json_string())?;
+        let result = p.handler.embed(&original, &serialize_embedded_envelope(&next)?)?;
         Ok(EmbedResult { blob: result, handler: p.handler.name().to_string(), mime_type: p.mime_type })
     }
 
@@ -1143,7 +1144,7 @@ impl MajikSignatureEmbed {
 
     fn read_envelope(handler: &dyn FormatHandler, bytes: &[u8]) -> R<MajikSignatureEnvelope> {
         match handler.extract(bytes)?.filter(|r| !r.is_empty()) {
-            Some(raw) => MajikSignatureEnvelope::from_json_str(&raw),
+            Some(raw) => parse_embedded_envelope(&raw),
             None => Ok(MajikSignatureEnvelope::empty()),
         }
     }

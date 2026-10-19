@@ -17,11 +17,15 @@ pub use crate::majik_signature::*;
 
 // ── Types / errors / constants ──────────────────────────────────────────────
 pub use crate::anchor::types::*;
+pub use crate::core::cbor::*;
 pub use crate::core::constants::*;
 pub use crate::core::errors::*;
 pub use crate::core::types::*;
 
 // ── Envelope / map / embed / order ──────────────────────────────────────────
+pub use crate::core::embed::embedded_envelope_codec::{
+    parse_embedded_envelope, serialize_embedded_envelope, EMBEDDED_CBOR_PREFIX,
+};
 pub use crate::core::embed::majik_embed::*;
 pub use crate::core::envelope::*;
 pub use crate::core::mjksmap::MajikSignatureMap;

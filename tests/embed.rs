@@ -204,7 +204,7 @@ fn detached_and_mjksmap_batch() {
 
     // Detached single file + .mjksig round trip
     let d = MajikSignature::sign_file_detached(b"detached body", &key, None).unwrap();
-    let mjksig = d.envelope.to_mjksig();
+    let mjksig = d.envelope.to_mjksig().unwrap();
     assert!(MajikSignatureEnvelope::is_mjksig(&mjksig));
     let r = MajikSignature::verify_file_detached(&d.blob, mjksig, &pk, None).unwrap();
     assert!(r[0].valid, "{:?}", r[0].reason);

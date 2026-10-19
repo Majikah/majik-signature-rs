@@ -11,6 +11,7 @@ use serde_json::Value;
 use sha3::{Digest, Sha3_512};
 
 use crate::anchor::types::MajikChainAnchor;
+use crate::core::cbor::{decode_cbor, encode_cbor, envelope_from_cbor, envelope_to_cbor};
 use crate::core::collate::locale_compare;
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
@@ -630,29 +631,57 @@ impl MajikSignatureEnvelope {
         Self::from_json_str(&text)
     }
 
+    // ── CBOR ─────────────────────────────────────────────────────────────────
+
+    /// Encode as raw CBOR with native byte strings for cryptographic fields
+    /// (no MJKSIG container header).
+    pub fn to_cbor(&self) -> R<Vec<u8>> {
+        envelope_to_cbor(&self.data).and_then(|v| encode_cbor(&v)).map_err(|e| {
+            MajikSignatureError::serialization_with_cause("Failed to serialize envelope as CBOR", e)
+        })
+    }
+
+    /// Decode raw CBOR (not an MJKSIG container) into a structurally validated envelope.
+    /// The wire form is converted back to the JSON model, then the normal validation runs.
+    pub fn from_cbor(input: &[u8]) -> R<MajikSignatureEnvelope> {
+        let json = decode_cbor(input).and_then(|v| envelope_from_cbor(&v)).map_err(|e| {
+            MajikSignatureError::serialization_with_cause("Failed to deserialize envelope from CBOR", e)
+        })?;
+        Self::from_json(&json)
+    }
+
     // ── MJKSIG binary format ─────────────────────────────────────────────────
 
-    /// `[magic(6)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload JSON]`.
-    pub fn to_mjksig_bytes(&self) -> Vec<u8> {
-        let payload = to_json_bytes(&self.data);
+    /// Encode as a version-2 MJKSIG container:
+    /// `[magic(6)][version(1)][reserved(1)][payloadLen(4, BE u32)][CBOR payload]`.
+    pub fn to_mjksig_bytes(&self) -> R<Vec<u8>> {
+        let payload = self.to_cbor()?;
+        if payload.is_empty() {
+            return Err(MajikSignatureError::serialization("MJKSIG payload must not be empty"));
+        }
+        let len = u32::try_from(payload.len()).map_err(|_| {
+            MajikSignatureError::serialization("MJKSIG payload exceeds the maximum 32-bit container length")
+        })?;
         let mut out = Vec::with_capacity(MJKSIG_HEADER_LEN + payload.len());
         out.extend_from_slice(&MJKSIG_MAGIC);
-        out.push(MJKSIG_VERSION);
-        out.push(0x00); // reserved — always 0 in v1
-        out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        out.push(MJKSIG_VERSION); // v2 = CBOR
+        out.push(0x00); // reserved
+        out.extend_from_slice(&len.to_be_bytes());
         out.extend_from_slice(&payload);
-        out
+        Ok(out)
     }
 
     /// TS `toMJKSIG(): Blob` — the blob is the raw bytes (media type: [`MJKSIG_MEDIA_TYPE`]).
-    pub fn to_mjksig(&self) -> Vec<u8> {
+    pub fn to_mjksig(&self) -> R<Vec<u8>> {
         self.to_mjksig_bytes()
     }
 
+    /// Parse a versioned MJKSIG container: v1 payloads are JSON, v2 payloads are CBOR.
+    /// Both normalize into the same validated envelope.
     pub fn from_mjksig(raw: &[u8]) -> R<MajikSignatureEnvelope> {
         if raw.len() < MJKSIG_HEADER_LEN + 1 {
             return Err(MajikSignatureError::serialization(
-                "Malformed MJKSIG: too short to contain a valid header",
+                "Malformed MJKSIG: too short to contain a valid header and payload",
             ));
         }
         if raw[..MJKSIG_MAGIC_LEN] != MJKSIG_MAGIC {
@@ -667,21 +696,47 @@ impl MajikSignatureEnvelope {
                 MJKSIG_SUPPORTED_VERSIONS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")
             )));
         }
+        let reserved = raw[MJKSIG_MAGIC_LEN + 1];
+        if reserved != 0x00 {
+            return Err(MajikSignatureError::serialization(format!(
+                "Malformed MJKSIG: reserved byte must be 0x00, got 0x{reserved:02x}"
+            )));
+        }
         let off = MJKSIG_MAGIC_LEN + 2;
-        let payload_len = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]);
-        // TS reads the length as a signed 32-bit int: >= 2^31 comes out negative.
-        if payload_len == 0 || payload_len >= 0x8000_0000 {
+        let payload_len = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]) as usize;
+        if payload_len == 0 {
             return Err(MajikSignatureError::serialization("Malformed MJKSIG: invalid payload length"));
         }
         let start = MJKSIG_HEADER_LEN;
-        let end = start + payload_len as usize;
+        let end = start + payload_len; // cannot overflow: payload_len <= u32::MAX
         if end > raw.len() {
             return Err(MajikSignatureError::serialization(
                 "Malformed MJKSIG: declared payload length exceeds buffer",
             ));
         }
-        let json = String::from_utf8_lossy(&raw[start..end]);
-        Self::from_json_str(&json)
+        // Exactly one complete container: reject ambiguous / concatenated payloads.
+        if end != raw.len() {
+            return Err(MajikSignatureError::serialization(
+                "Malformed MJKSIG: unexpected trailing bytes after declared payload",
+            ));
+        }
+        let payload = &raw[start..end];
+        match version {
+            MJKSIG_JSON_VERSION => {
+                // Legacy v1: UTF-8 JSON.
+                let json = std::str::from_utf8(payload).map_err(|e| {
+                    MajikSignatureError::serialization_with_cause(
+                        "Malformed MJKSIG v1: payload is not valid UTF-8",
+                        e,
+                    )
+                })?;
+                Self::from_json_str(json)
+            }
+            MJKSIG_CBOR_VERSION => Self::from_cbor(payload),
+            other => Err(MajikSignatureError::serialization(format!(
+                "Unsupported MJKSIG payload encoding for version {other}"
+            ))),
+        }
     }
 
     pub fn is_mjksig(input: &[u8]) -> bool {

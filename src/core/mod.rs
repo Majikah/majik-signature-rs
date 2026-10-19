@@ -1,5 +1,6 @@
 //! Port of `core/` (the files `index.ts` does not re-export individually are still public here).
 
+pub mod cbor;
 pub mod collate;
 pub mod constants;
 pub mod embed;

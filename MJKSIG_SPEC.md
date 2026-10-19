@@ -5,8 +5,8 @@
 **File Extension:** `.mjksig`
 **Proposed Media Type:** `application/vnd.majikah.mjksig`
 **Category:** Secure digital signature envelope
-**Specification Version:** 1.0
-**Format Version Byte:** `0x01`
+**Specification Version:** 1.2
+**Current Format Version Byte:** `0x02` (CBOR; `0x01` JSON is legacy)
 **Status:** Draft / Implementation-aligned
 
 ---
@@ -15,7 +15,7 @@
 
 **MJKSIG (Majik Signature Envelope)** is a self-contained, detached digital signature binary format. It is designed to carry cryptographic proofs of file integrity, authorship, and signing policies (multi-sig and allowlists) independently of the file it signs. 
 
-The format employs a **hybrid cryptographic construction**, requiring signatures from both a classical elliptic curve algorithm (**Ed25519**) and a post-quantum algorithm (**ML-DSA-87**). The binary structure acts as a lightweight wrapper around a deterministically structured UTF-8 JSON payload known as the `MultiSigEnvelope`.
+The format employs a **hybrid cryptographic construction**, requiring signatures from both a classical elliptic curve algorithm (**Ed25519**) and a post-quantum algorithm (**ML-DSA-87**). The binary structure acts as a lightweight wrapper around a `MultiSigEnvelope` payload. New containers encode this payload as CBOR; legacy containers encode it as UTF-8 JSON.
 
 ---
 
@@ -90,16 +90,16 @@ Verifiers should treat a file as chain-valid only when **both** checks pass for 
 
 All multi-byte integer fields are **big-endian**.
 
-The file begins with a strictly sized **12-byte header** regardless of the version, enabling parsers to easily locate the JSON payload.
+The file begins with a strictly sized **12-byte header** regardless of the version. The format version byte selects the payload encoding: version `0x01` is legacy UTF-8 JSON, and version `0x02` is the current CBOR encoding. New files are written as version `0x02`; implementations conforming to this specification accept both versions.
 
 ```text
 Offset  Length  Field
 ──────  ──────  ──────────────────────────────────────────────────
 0       6       Magic bytes: ASCII "MJKSIG" (0x4D 0x4A 0x4B 0x53 0x49 0x47)
-6       1       Format version: 0x01
+6       1       Format version: 0x02 (current CBOR); 0x01 (legacy JSON)
 7       1       Reserved byte
-8       4       Payload JSON byte length (big-endian uint32)
-12      N       Payload JSON (UTF-8, MultiSigEnvelope format)
+8       4       Payload byte length (big-endian uint32)
+12      N       Payload, encoded according to the format version
 ```
 
 ### 3.1 Field Definitions
@@ -107,16 +107,18 @@ Offset  Length  Field
 | Field          | Offset | Length  | Encoding          | Description                                                                   |
 | -------------- | ------ | ------- | ----------------- | ----------------------------------------------------------------------------- |
 | Magic          | 0      | 6 bytes | Raw bytes         | ASCII "MJKSIG" — `0x4d, 0x4a, 0x4b, 0x53, 0x49, 0x47`.                        |
-| Version        | 6      | 1 byte  | Unsigned integer  | Format version. Current: `0x01`.                                              |
-| Reserved       | 7      | 1 byte  | Raw byte          | Reserved for future flags. Currently ignored/set to `0x00`.                   |
-| Payload length | 8      | 4 bytes | Big-endian uint32 | Byte length of the following UTF-8 payload JSON section (`N`).                |
-| Payload JSON   | 12     | N bytes | UTF-8 JSON        | The `MultiSigEnvelope` structure carrying the envelope state and public keys. |
+| Version        | 6      | 1 byte  | Unsigned integer  | Payload encoding version: current `0x02` (CBOR); legacy `0x01` (JSON).        |
+| Reserved       | 7      | 1 byte  | Raw byte          | Reserved for future use. Must currently be `0x00`.                            |
+| Payload length | 8      | 4 bytes | Big-endian uint32 | Byte length of the following payload (`N`).                                  |
+| Payload        | 12     | N bytes | Version-specific | The `MultiSigEnvelope` data: UTF-8 JSON for v1, CBOR for v2.                  |
 
 ---
 
-## 4. Payload JSON Schema
+## 4. Payload Schema
 
-The payload section located at byte offset `12` parses into the `MultiSigEnvelope` schema.
+The payload section located at byte offset `12` represents the `MultiSigEnvelope` schema. The interfaces below describe its logical, JSON-compatible form. Version 1 serializes this form as UTF-8 JSON. Version 2 serializes it as CBOR as described in §4.4.
+
+The container version is independent of the `version` fields within the envelope and per-signer records. Those schema versions remain `1` in both payload encodings.
 
 ### 4.1 MultiSigEnvelope (Root Object)
 
@@ -221,6 +223,46 @@ interface ExpectedSigner {
 ```
 *Note: All three fields must match during the signing-eligibility gate to prevent spoofing by a different key pair sharing the same fingerprint.*
 
+### 4.4 CBOR Payload Encoding (Container Version 2)
+
+Version 2 encodes the envelope as a CBOR map using ordinary CBOR maps and byte strings (no CBOR record extensions). Map keys use the field names shown in §§4.1–4.3; nested objects and arrays retain their schema structure.
+
+Binary values represented as Base64 or hexadecimal strings in the logical schema are encoded as native CBOR byte strings in v2. This includes fingerprints, public keys, signatures, content hashes, allowlist hashes, version-chain hashes, and seal hashes. Timestamps, content types, messages, and other textual fields remain CBOR text strings; numeric and boolean values retain their corresponding CBOR types. Optional fields remain absent when not set.
+
+This encoding change affects only container serialization. It does not change the canonical signing payload, signature algorithms, or verification rules in §2. A reader chooses the decoder from the container version byte: v1 JSON or v2 CBOR. Reading legacy v1 containers does not mean older implementations can read v2 containers.
+
+### 4.5 Payload Size Comparison and Improvements
+
+CBOR reduces envelope payload size by representing cryptographic values as binary byte strings instead of Base64 or hexadecimal text, and by avoiding JSON syntax and textual number encoding. The logical envelope fields and signing semantics are unchanged.
+
+The following measurements compare the minified JSON envelope payload with the raw CBOR envelope payload, averaged across the repository's PDF, JPEG, and WAV fixtures. The charts use the same byte scale. Values are payload bytes only; the 12-byte MJKSIG container header is excluded. Both encodings contain the same envelope data.
+
+```mermaid
+xychart-beta
+    title "Minified JSON envelope payload"
+    x-axis "Signer count" [1, 3, 5]
+    y-axis "Bytes" 0 --> 55000
+    bar [10046, 30082, 50118]
+```
+
+```mermaid
+xychart-beta
+    title "CBOR envelope payload"
+    x-axis "Signer count" [1, 3, 5]
+    y-axis "Bytes" 0 --> 55000
+    bar [7564, 22644, 37724]
+```
+
+| Signers | Minified JSON | Raw CBOR | Bytes saved | Reduction |
+| ------: | ------------: | -------: | ----------: | --------: |
+| 1       | 10,046 B      | 7,564 B  | 2,482 B     | 24.71%    |
+| 3       | 30,082 B      | 22,644 B | 7,438 B     | 24.73%    |
+| 5       | 50,118 B      | 37,724 B | 12,394 B    | 24.73%    |
+
+Across all 15 fixture-and-signer-count samples (three fixtures and signer counts 1–5), the average payload was **30,082 B as JSON** and **22,644 B as CBOR**, a **24.73% reduction**. These byte counts were captured from a benchmark run on 2026-10-19; they are serialization-size measurements, not timing statistics. Results are specific to this envelope schema and benchmark fixtures; applications should measure their own envelopes if exact storage estimates matter. Re-run with `npm run benchmark:serialization` to reproduce the measurements.
+
+**Improvements in v2:** smaller payloads; native binary representation for cryptographic fields; the same fixed 12-byte header with an explicit encoding version; and a versioned migration path that preserves read compatibility with v1 JSON. CBOR is binary and is not directly human-readable like JSON; tools must select the decoder from the version byte.
+
 ---
 
 ## 5. File Identification
@@ -239,9 +281,9 @@ interface ExpectedSigner {
 ## 6. Parsing & Verification Pipeline
 
 1.  **Header Verification:** Read the first 6 bytes and verify the `MJKSIG` magic sequence.
-2.  **Version Check:** Read byte offset `6` to ensure the version is `0x01`. 
-3.  **Read Payload Length:** Extract the 4-byte big-endian `uint32` starting at offset `8`. 
-4.  **Parse Payload:** Read the specified number of bytes starting at offset `12` as a UTF-8 string, then parse it into a `MultiSigEnvelope` JSON object.
+2.  **Version Check:** Read byte offset `6`; accept `0x01` (legacy JSON) or `0x02` (current CBOR).
+3.  **Read Payload Length:** Extract the 4-byte big-endian `uint32` starting at offset `8`.
+4.  **Decode Payload:** Read the specified number of bytes starting at offset `12`. Decode as UTF-8 JSON for container version `0x01`, or as CBOR for version `0x02`, then validate the resulting `MultiSigEnvelope`.
 5.  **Target Verification:** For a target signature in the `signatures` array:
     *   Compute the SHA-256 hash of the detached original file and ensure it base64-matches `contentHash`.
     *   Reconstruct the deterministic canonical byte payload.

@@ -21,6 +21,7 @@ use serde_json::Value;
 use zeroize::Zeroizing;
 
 use crate::anchor::types::MajikChainAnchorMemo;
+use crate::core::cbor::{decode_cbor, encode_cbor, signature_from_cbor, signature_to_cbor};
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
@@ -424,6 +425,13 @@ impl MajikSignature {
             .map_err(|e| MajikSignatureError::serialization_with_cause("Failed to serialize signature", e))
     }
 
+    /// Encode as raw CBOR with native byte strings for cryptographic fields.
+    pub fn to_cbor(&self) -> R<Vec<u8>> {
+        signature_to_cbor(&self.to_json()).and_then(|value| encode_cbor(&value)).map_err(|e| {
+            MajikSignatureError::serialization_with_cause("Failed to serialize signature as CBOR", e)
+        })
+    }
+
     /// Base64 of the UTF-8 JSON — the portable single-string form.
     pub fn serialize(&self) -> R<String> {
         Ok(B64.encode(self.to_json_string()?.as_bytes()))
@@ -448,6 +456,14 @@ impl MajikSignature {
     /// Validate untrusted JSON and wrap it.
     pub fn from_json_value(value: &Value) -> R<MajikSignature> {
         Ok(MajikSignature::new(MajikSignatureValidator::parse_json_value(value)?))
+    }
+
+    /// Decode raw CBOR into a structurally validated signature.
+    pub fn from_cbor(input: &[u8]) -> R<MajikSignature> {
+        let json = decode_cbor(input).and_then(|value| signature_from_cbor(&value)).map_err(|e| {
+            MajikSignatureError::serialization_with_cause("Failed to deserialize signature from CBOR", e)
+        })?;
+        Self::from_json(&json)
     }
 
     pub fn deserialize(base64: &str) -> R<MajikSignature> {

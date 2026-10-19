@@ -58,11 +58,21 @@ pub const ML_DSA_87_SIGNATURE_LEN: usize = 4627;
 
 // ─── MJKSIG binary format ────────────────────────────────────────────────────
 //
-// Layout: [magic(6)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload JSON]
+// Layout: [magic(6)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload]
+//
+// Version 1: UTF-8 JSON payload (legacy; read-only for backward compatibility).
+// Version 2: CBOR payload (current).
+// The header is a fixed 12 bytes across versions; the version byte selects the payload decoder.
 pub const MJKSIG_MAGIC: [u8; 6] = [0x4d, 0x4a, 0x4b, 0x53, 0x49, 0x47]; // "MJKSIG"
 pub const MJKSIG_MAGIC_LEN: usize = MJKSIG_MAGIC.len();
-pub const MJKSIG_VERSION: u8 = 0x01;
-pub const MJKSIG_SUPPORTED_VERSIONS: [u8; 1] = [MJKSIG_VERSION];
+/// Legacy MJKSIG container encoding: UTF-8 JSON.
+pub const MJKSIG_JSON_VERSION: u8 = 0x01;
+/// Current MJKSIG container encoding: CBOR.
+pub const MJKSIG_CBOR_VERSION: u8 = 0x02;
+/// Version used when writing new MJKSIG containers.
+pub const MJKSIG_VERSION: u8 = MJKSIG_CBOR_VERSION;
+/// Versions accepted when reading MJKSIG containers.
+pub const MJKSIG_SUPPORTED_VERSIONS: [u8; 2] = [MJKSIG_JSON_VERSION, MJKSIG_CBOR_VERSION];
 pub const MJKSIG_HEADER_LEN: usize = MJKSIG_MAGIC_LEN + 1 + 1 + 4; // 12
 
 pub const MJKSIG_MEDIA_TYPE: &str = "application/vnd.majikah.mjksig";

@@ -1,6 +1,6 @@
 [package]
 name = "majik-signature"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Hybrid post-quantum content signing and verification (Ed25519 + ML-DSA-87) for the Majikah ecosystem. Pure-Rust port of @majikah/majik-signature."
@@ -24,6 +24,7 @@ base64 = "0.23.1"
 hex = "0.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+ciborium = "0.2.2"
 zeroize = { version = "1.9.1", features = ["zeroize_derive"] }
 getrandom = "0.4.3"
 uuid = { version = "1", features = ["v4"] }
