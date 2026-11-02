@@ -848,12 +848,30 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_file_chain(file, mime_type, now)
     }
 
+    pub fn verify_file_detached_chain(
+        file: &[u8],
+        envelope: impl Into<EnvelopeInput>,
+        mime_type: Option<&str>,
+        now: Option<Timestamp>,
+    ) -> R<FileChainVerification> {
+        MajikSignatureEmbed::verify_detached_chain(file, envelope.into(), mime_type, now)
+    }
+
     pub fn verify_file_revisions(
         final_file: &[u8],
         revisions: &[&[u8]],
         options: Option<&VerifyRevisionsOptions<'_>>,
     ) -> R<RevisionSetVerification> {
         MajikSignatureEmbed::verify_file_revisions(final_file, revisions, options)
+    }
+
+    pub fn verify_file_revisions_detached(
+        final_file: &[u8],
+        revisions: &[&[u8]],
+        envelope: impl Into<EnvelopeInput>,
+        options: Option<&VerifyRevisionsOptions<'_>>,
+    ) -> R<RevisionSetVerification> {
+        MajikSignatureEmbed::verify_detached_revisions(final_file, revisions, envelope.into(), options)
     }
 
     pub fn normalize_expected_order(expected_order: &[OrderEntry<'_>]) -> R<Vec<ExpectedSigner>> {

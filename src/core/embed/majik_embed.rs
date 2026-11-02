@@ -91,6 +91,10 @@ pub struct SignDetachedOptions {
     pub expected_signers: Option<Vec<ExpectedSigner>>,
     pub existing_envelope: Option<EnvelopeInput>,
     pub tsa: Option<MajikTimestamp>,
+    /// The prior detached revision used to verify and extend `existing_envelope`.
+    pub prior_file: Option<Vec<u8>>,
+    /// Free-form note stored on the new `FileVersion` entry.
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +145,11 @@ struct Prepared<'a> {
     bytes: &'a [u8],
     mime_type: String,
     handler: &'static dyn FormatHandler,
+}
+
+struct NormalizedRevision {
+    stripped: Vec<u8>,
+    content_hash: String,
 }
 
 /// Namespace for the file-aware operations (TS static class).
@@ -284,6 +293,73 @@ impl MajikSignatureEmbed {
         Ok(envelope)
     }
 
+    fn read_and_verify_prior_detached(
+        prior_file: &[u8],
+        envelope_input: EnvelopeInput,
+    ) -> R<MajikSignatureEnvelope> {
+        let p = Self::prepare(prior_file, None);
+        let mut envelope = MajikSignatureEnvelope::from_input(envelope_input)?;
+        if envelope.signatures().is_empty() {
+            return Err(MajikSignatureError::new(
+                "existingEnvelope has no signatures — nothing to build a revision on.",
+            ));
+        }
+
+        let allowlist = envelope.verify_allowlist_integrity();
+        if !allowlist.valid {
+            return Err(MajikSignatureError::new(format!(
+                "existingEnvelope allowlist integrity failed: {}",
+                allowlist.reason.unwrap_or_default()
+            )));
+        }
+        let chain = envelope.verify_version_chain_integrity();
+        if !chain.valid {
+            return Err(MajikSignatureError::new(format!(
+                "existingEnvelope version chain integrity failed: {}",
+                chain.reason.unwrap_or_default()
+            )));
+        }
+
+        let prepared = prepare_detached_bytes(
+            p.handler,
+            p.bytes,
+            &DetachedPrepareOptions {
+                require_canonical: false,
+                validate_envelope: &|raw| parse_embedded_envelope(raw).map(|_| ()),
+            },
+        )?;
+        let prior_stripped = match prepared {
+            CanonicalResult::Ok { original } => original,
+            CanonicalResult::Err { reason } => {
+                return Err(MajikSignatureError::new(format!("priorFile is not in canonical form: {reason}")))
+            }
+        };
+        let checked = Self::verify_envelope_self_contained(&envelope, &prior_stripped, None)?;
+        if !checked.ok {
+            let failed = std::iter::once(&checked.latest)
+                .chain(checked.history.iter().map(|result| &result.base))
+                .find(|result| !result.valid);
+            return Err(MajikSignatureError::new(format!(
+                "Refusing to build on priorFile — signature by \"{}\" is invalid: {}",
+                failed.and_then(|result| result.signer_id.as_deref()).unwrap_or("undefined"),
+                failed.and_then(|result| result.reason.as_deref()).unwrap_or("undefined")
+            )));
+        }
+
+        if envelope.file_versions().is_empty() {
+            let first = &envelope.signatures()[0];
+            envelope = envelope.with_file_version(FileVersion {
+                version: 1,
+                timestamp: first.timestamp.clone(),
+                content_hash: bytes_to_base64(&hash_content(&prior_stripped)),
+                previous_version_hash: None,
+                created_by: Some(first.signer_id.clone()),
+                message: None,
+            })?;
+        }
+        Ok(envelope)
+    }
+
     /// Verify a whole envelope against one set of stripped bytes: the signature that matches the
     /// current bytes in full, plus commitment-only checks for every earlier revision.
     fn verify_envelope_self_contained(
@@ -401,23 +477,49 @@ impl MajikSignatureEmbed {
         let options = options.unwrap_or(&default_opts);
         let p = Self::prepare(file, Some(&options.embed));
 
-        let envelope = match &options.existing_envelope {
-            Some(e) => MajikSignatureEnvelope::from_input(e.clone())?,
-            None => Self::read_envelope(p.handler, p.bytes)?,
+        let envelope = match (&options.prior_file, &options.existing_envelope) {
+            (Some(prior), Some(existing)) => Self::read_and_verify_prior_detached(prior, existing.clone())?,
+            (Some(_), None) => {
+                return Err(MajikSignatureError::new(
+                    "priorFile requires existingEnvelope — a detached revision must extend an existing sidecar envelope.",
+                ));
+            }
+            (_, Some(existing)) => MajikSignatureEnvelope::from_input(existing.clone())?,
+            (None, None) => Self::read_envelope(p.handler, p.bytes)?,
         };
         envelope.assert_can_sign(key)?;
 
         let original = p.handler.strip(p.bytes)?;
         let allowlist_hash = envelope.resolve_allowlist_hash_for(key, options.expected_signers.as_deref());
+        let new_version = options.prior_file.as_ref().map(|_| {
+            let last = envelope.last_file_version();
+            FileVersion {
+                version: last.map(|entry| entry.version + 1).unwrap_or(1),
+                timestamp: options.timestamp.clone().unwrap_or_else(now_iso),
+                content_hash: bytes_to_base64(&hash_content(&original)),
+                previous_version_hash: last.map(MajikSignatureEnvelope::hash_file_version_entry),
+                created_by: Some(key.fingerprint().to_string()),
+                message: options.message.clone().filter(|message| !message.is_empty()),
+            }
+        });
+        let version_chain_hash = new_version.as_ref().map(|entry| {
+            let mut chain = envelope.file_versions().to_vec();
+            chain.push(entry.clone());
+            MajikSignatureEnvelope::hash_file_version_chain(&chain)
+        });
 
         let mut signature = MajikSignature::sign(
             &original,
             key,
             Some(&SignOptions {
                 content_type: options.content_type.clone(),
-                timestamp: options.timestamp.clone(),
+                timestamp: new_version
+                    .as_ref()
+                    .map(|entry| entry.timestamp.clone())
+                    .or_else(|| options.timestamp.clone()),
                 valid_until: options.valid_until.clone(),
                 allowlist_hash,
+                version_chain_hash,
                 ..Default::default()
             }),
         )?;
@@ -432,7 +534,11 @@ impl MajikSignatureEmbed {
         } else {
             envelope
         };
-        let next = with_allowlist.with_signature(signature.to_json())?;
+        let base = match new_version {
+            Some(entry) => with_allowlist.with_file_version(entry)?,
+            None => with_allowlist,
+        };
+        let next = base.with_signature(signature.to_json())?;
         Ok(SignDetachedResult {
             blob: original,
             handler: p.handler.name().to_string(),
@@ -865,6 +971,42 @@ impl MajikSignatureEmbed {
         })
     }
 
+    /// Verify a detached file against its sidecar envelope, including its revision chain.
+    pub fn verify_detached_chain(
+        file: &[u8],
+        envelope_input: EnvelopeInput,
+        mime_type: Option<&str>,
+        now: Option<Timestamp>,
+    ) -> R<FileChainVerification> {
+        let p = Self::prepare_mime(file, mime_type);
+        let envelope = MajikSignatureEnvelope::from_input(envelope_input)?;
+        if envelope.file_versions().is_empty() {
+            return Err(MajikSignatureError::new("Cannot verify chain — envelope has no fileVersions."));
+        }
+
+        let prepared = prepare_detached_bytes(
+            p.handler,
+            p.bytes,
+            &DetachedPrepareOptions {
+                require_canonical: false,
+                validate_envelope: &|raw| parse_embedded_envelope(raw).map(|_| ()),
+            },
+        )?;
+        let original = match prepared {
+            CanonicalResult::Ok { original } => original,
+            CanonicalResult::Err { reason } => return Err(MajikSignatureError::new(reason)),
+        };
+
+        let allowlist_integrity = envelope.verify_allowlist_integrity();
+        let chain_integrity = envelope.verify_version_chain_integrity();
+        let checked = Self::verify_envelope_self_contained(&envelope, &original, now)?;
+        Ok(FileChainVerification {
+            chain_valid: allowlist_integrity.valid && chain_integrity.valid && checked.ok,
+            latest: checked.latest,
+            history: checked.history,
+        })
+    }
+
     /// Verify a set of saved revisions against the final file's `fileVersions` chain.
     pub fn verify_file_revisions(
         final_file: &[u8],
@@ -882,12 +1024,22 @@ impl MajikSignatureEmbed {
         if chain.is_empty() {
             return Err(MajikSignatureError::new("This file has no fileVersions chain to verify against."));
         }
-
-        struct Normalized {
-            stripped: Vec<u8>,
-            content_hash: String,
+        let allowlist_integrity = envelope.verify_allowlist_integrity();
+        if !allowlist_integrity.valid {
+            return Err(MajikSignatureError::new(format!(
+                "Envelope allowlist integrity failed: {}",
+                allowlist_integrity.reason.unwrap_or_default()
+            )));
         }
-        let mut normalized: Vec<Normalized> = Vec::new();
+        let chain_integrity = envelope.verify_version_chain_integrity();
+        if !chain_integrity.valid {
+            return Err(MajikSignatureError::new(format!(
+                "Envelope version chain integrity failed: {}",
+                chain_integrity.reason.unwrap_or_default()
+            )));
+        }
+
+        let mut normalized: Vec<NormalizedRevision> = Vec::new();
         for input in revisions.iter().copied().chain(std::iter::once(final_file)) {
             let rp = Self::prepare(input, None);
             let r_raw = rp.handler.extract(rp.bytes)?;
@@ -898,12 +1050,90 @@ impl MajikSignatureEmbed {
                 },
                 None => rp.handler.strip(rp.bytes)?,
             };
-            normalized.push(Normalized { content_hash: bytes_to_base64(&hash_content(&stripped)), stripped });
+            normalized.push(NormalizedRevision {
+                content_hash: bytes_to_base64(&hash_content(&stripped)),
+                stripped,
+            });
         }
 
-        let mut results: Vec<RevisionCheckResult> = Vec::new();
+        Self::check_revision_set(&envelope, &normalized, options)
+    }
+
+    /// Verify supplied clean detached revisions against a sidecar's `fileVersions` chain.
+    pub fn verify_detached_revisions(
+        final_file: &[u8],
+        revisions: &[&[u8]],
+        envelope_input: EnvelopeInput,
+        options: Option<&VerifyRevisionsOptions<'_>>,
+    ) -> R<RevisionSetVerification> {
+        let default_opts = VerifyRevisionsOptions::default();
+        let options = options.unwrap_or(&default_opts);
+        let envelope = MajikSignatureEnvelope::from_input(envelope_input)?;
+        let chain = envelope.file_versions();
+        if chain.is_empty() {
+            return Err(MajikSignatureError::new(
+                "This envelope has no fileVersions chain to verify against.",
+            ));
+        }
+
+        let allowlist_integrity = envelope.verify_allowlist_integrity();
+        if !allowlist_integrity.valid {
+            return Err(MajikSignatureError::new(format!(
+                "Envelope allowlist integrity failed: {}",
+                allowlist_integrity.reason.unwrap_or_default()
+            )));
+        }
+        let chain_integrity = envelope.verify_version_chain_integrity();
+        if !chain_integrity.valid {
+            return Err(MajikSignatureError::new(format!(
+                "Envelope version chain integrity failed: {}",
+                chain_integrity.reason.unwrap_or_default()
+            )));
+        }
+
+        let mut normalized = Vec::new();
+        for (index, input) in revisions.iter().copied().chain(std::iter::once(final_file)).enumerate() {
+            let is_final = index == revisions.len();
+            let rp = Self::prepare_mime(input, options.mime_type.as_deref());
+            let prepared = prepare_detached_bytes(
+                rp.handler,
+                rp.bytes,
+                &DetachedPrepareOptions {
+                    require_canonical: false,
+                    validate_envelope: &|raw| parse_embedded_envelope(raw).map(|_| ()),
+                },
+            )?;
+            let stripped = match prepared {
+                CanonicalResult::Ok { original } => original,
+                CanonicalResult::Err { reason } if is_final => {
+                    return Err(MajikSignatureError::new(reason));
+                }
+                CanonicalResult::Err { .. } => continue,
+            };
+            normalized.push(NormalizedRevision {
+                content_hash: bytes_to_base64(&hash_content(&stripped)),
+                stripped,
+            });
+        }
+
+        Self::check_revision_set(&envelope, &normalized, options)
+    }
+
+    fn check_revision_set(
+        envelope: &MajikSignatureEnvelope,
+        normalized: &[NormalizedRevision],
+        options: &VerifyRevisionsOptions<'_>,
+    ) -> R<RevisionSetVerification> {
+        let chain = envelope.file_versions();
+        if chain.is_empty() {
+            return Err(MajikSignatureError::new(
+                "This envelope has no fileVersions chain to verify against.",
+            ));
+        }
+
+        let mut results = Vec::new();
         for (i, entry) in chain.iter().enumerate() {
-            let Some(m) = normalized.iter().find(|r| r.content_hash == entry.content_hash) else {
+            let Some(revision) = normalized.iter().find(|r| r.content_hash == entry.content_hash) else {
                 results.push(RevisionCheckResult {
                     version: entry.version,
                     status: RevisionCheckStatus::Unmatched,
@@ -927,18 +1157,18 @@ impl MajikSignatureEmbed {
                 continue;
             }
             let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(&chain[..=i]);
-            let sig = envelope.signatures().iter().find(|s| {
-                s.content_hash == entry.content_hash
-                    && match entry.created_by.as_deref().filter(|c| !c.is_empty()) {
-                        Some(by) => s.signer_id == by,
+            let signature = envelope.signatures().iter().find(|signature| {
+                signature.content_hash == entry.content_hash
+                    && match entry.created_by.as_deref().filter(|creator| !creator.is_empty()) {
+                        Some(creator) => signature.signer_id == creator,
                         None => true,
                     }
-                    && match s.version_chain_hash.as_deref().filter(|h| !h.is_empty()) {
-                        Some(h) => h == expected_chain_hash,
+                    && match signature.version_chain_hash.as_deref().filter(|hash| !hash.is_empty()) {
+                        Some(hash) => hash == expected_chain_hash,
                         None => true,
                     }
             });
-            let Some(sig) = sig else {
+            let Some(signature) = signature else {
                 results.push(RevisionCheckResult {
                     version: entry.version,
                     status: RevisionCheckStatus::Unmatched,
@@ -947,41 +1177,46 @@ impl MajikSignatureEmbed {
                 });
                 continue;
             };
-            if let Some(h) = sig.version_chain_hash.as_deref().filter(|h| !h.is_empty()) {
-                if h != expected_chain_hash {
-                    results.push(RevisionCheckResult {
-                        version: entry.version,
-                        status: RevisionCheckStatus::ChainBroken,
-                        signer_id: Some(sig.signer_id.clone()),
-                        reason: Some("versionChainHash does not match this revision's chain state.".into()),
-                    });
-                    continue;
-                }
+            if signature
+                .version_chain_hash
+                .as_deref()
+                .filter(|hash| !hash.is_empty())
+                .is_some_and(|hash| hash != expected_chain_hash)
+            {
+                results.push(RevisionCheckResult {
+                    version: entry.version,
+                    status: RevisionCheckStatus::ChainBroken,
+                    signer_id: Some(signature.signer_id.clone()),
+                    reason: Some("versionChainHash does not match this revision's chain state.".into()),
+                });
+                continue;
             }
             let public_keys = match options.resolve_public_keys {
-                Some(resolve) => resolve(&sig.signer_id)?,
+                Some(resolve) => resolve(&signature.signer_id)?,
                 None => MajikSignerPublicKeys {
-                    signer_id: sig.signer_id.clone(),
-                    ed_public_key: base64_to_bytes(&sig.signer_ed_public_key)?,
-                    ml_dsa_public_key: base64_to_bytes(&sig.signer_ml_dsa_public_key)?,
+                    signer_id: signature.signer_id.clone(),
+                    ed_public_key: base64_to_bytes(&signature.signer_ed_public_key)?,
+                    ml_dsa_public_key: base64_to_bytes(&signature.signer_ml_dsa_public_key)?,
                 },
             };
-            let vr = MajikSignature::verify(&m.stripped, sig, &public_keys, options.now)?;
+            let verification =
+                MajikSignature::verify(&revision.stripped, signature, &public_keys, options.now)?;
             results.push(RevisionCheckResult {
                 version: entry.version,
-                status: if vr.valid {
+                status: if verification.valid {
                     RevisionCheckStatus::Verified
                 } else {
                     RevisionCheckStatus::SignatureInvalid
                 },
-                signer_id: Some(sig.signer_id.clone()),
-                reason: vr.reason,
+                signer_id: Some(signature.signer_id.clone()),
+                reason: verification.reason,
             });
         }
+
         Ok(RevisionSetVerification {
             all_valid: results.len() == chain.len()
-                && results.iter().all(|r| r.status == RevisionCheckStatus::Verified),
-            is_complete_set: results.iter().all(|r| r.status != RevisionCheckStatus::Unmatched),
+                && results.iter().all(|result| result.status == RevisionCheckStatus::Verified),
+            is_complete_set: results.iter().all(|result| result.status != RevisionCheckStatus::Unmatched),
             results,
         })
     }

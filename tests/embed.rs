@@ -248,6 +248,61 @@ fn version_chain_across_resigns() {
     assert!(revs.all_valid && revs.is_complete_set, "{:?}", revs);
 }
 
+#[test]
+fn detached_revision_chain_and_verification() {
+    let alice = new_key("alice-detached");
+    let bob = new_key("bob-detached");
+    let mime = Some("text/plain");
+    let embed = EmbedOptions { mime_type: mime.map(String::from), force_fallback: false };
+
+    let first = MajikSignature::sign_file_detached(b"detached original", &alice, None).unwrap();
+    let second = MajikSignature::sign_file_detached(
+        b"detached revision",
+        &bob,
+        Some(&SignDetachedOptions {
+            embed,
+            existing_envelope: Some(EnvelopeInput::Envelope(first.envelope.clone())),
+            prior_file: Some(first.blob.clone()),
+            message: Some("Added a detached revision".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(second.envelope.file_versions().len(), 2);
+    assert_eq!(second.envelope.file_versions()[1].message.as_deref(), Some("Added a detached revision"));
+    let chain = MajikSignature::verify_file_detached_chain(&second.blob, second.envelope.clone(), mime, None)
+        .unwrap();
+    assert!(chain.chain_valid, "{chain:?}");
+
+    let revisions = MajikSignature::verify_file_revisions_detached(
+        &second.blob,
+        &[first.blob.as_slice()],
+        second.envelope.clone(),
+        Some(&VerifyRevisionsOptions { mime_type: mime.map(String::from), ..Default::default() }),
+    )
+    .unwrap();
+    assert!(revisions.all_valid && revisions.is_complete_set, "{revisions:?}");
+
+    let missing_envelope = MajikSignature::sign_file_detached(
+        b"detached revision",
+        &bob,
+        Some(&SignDetachedOptions { prior_file: Some(first.blob.clone()), ..Default::default() }),
+    );
+    assert!(missing_envelope.is_err());
+
+    let mismatched = MajikSignature::sign_file_detached(
+        b"detached revision",
+        &bob,
+        Some(&SignDetachedOptions {
+            existing_envelope: Some(EnvelopeInput::Envelope(first.envelope)),
+            prior_file: Some(b"not the signed prior revision".to_vec()),
+            ..Default::default()
+        }),
+    );
+    assert!(mismatched.is_err());
+}
+
 /// Emits Rust-produced files for the TypeScript verifier (interop/verify_rust_files.mjs).
 #[test]
 fn emit_rust_files_for_typescript() {
