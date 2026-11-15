@@ -124,7 +124,7 @@ src/
 ├── majik_signature.rs          ← majik-signature.ts
 ├── anchor/{mod.rs,types.rs}
 ├── core/
-│   ├── constants.rs errors.rs hash.rs payload.rs types.rs validator.rs
+│   ├── constants.rs errors.rs hash.rs payload.rs session_context.rs types.rs validator.rs
 │   ├── envelope.rs mjksmap.rs order.rs
 │   ├── time.rs collate.rs      ← Rust-only helpers (JS Date / localeCompare semantics)
 │   ├── embed/
@@ -143,6 +143,8 @@ src/
 - **Zeroization.** Secret keys are read into `Zeroizing` buffers; `ed25519-dalek`/`fips204` key types are `ZeroizeOnDrop`. The TS clone-and-wipe `try/finally` is replaced by RAII.
 - **Errors.** One `MajikSignatureError` enum (variants = the TS subclasses: `Validation { field }`, `Verification`, `Key`, `Serialization`, `Allowlist { signer_id }`).
 - **No adapter.** TS threads a `MajikSignatureStaticAdapter` to avoid a circular import; Rust modules reference each other directly.
+- **SignRoom.** `build_session_context_hash` derives the canonical session/challenge/policy commitment; pass it in `SignOptions::session_context_hash`. `verify_digest` verifies the hybrid signature against a trusted digest without plaintext and requires the expected context for session-bound signatures.
+- **TSA scope and trust.** `build_tsa_request_payload_with_scope(Some(TsaDigestScope::Signature))` attests to the unsigned signer record. Use `add_tsa_with_trusted_keys` / `verify_tsa_with_trusted_keys` to pin a TSA; the older methods remain compatible with embedded-key verification.
 
 ## Interoperability
 
