@@ -169,6 +169,14 @@ fn signature_scoped_tsa_is_pinned_and_cannot_be_reused() {
     assert!(signature.verify_tsa_with_trusted_keys(Some(&tsa_keys)).unwrap().valid);
     assert!(signature.verify_tsa().unwrap().valid);
 
+    // The TSA field is excluded from the signature-scope commitment, so attachment is stable.
+    let restored = MajikSignature::from_cbor(&signature.to_cbor().unwrap()).unwrap();
+    assert_eq!(
+        restored.tsa().unwrap().payload.digest.scope,
+        Some(TsaDigestScope::Signature),
+    );
+    assert!(restored.verify_tsa_with_trusted_keys(Some(&tsa_keys)).unwrap().valid);
+
     let wrong_tsa_keys = MajikSignature::public_keys_from_majik_key(&other_signer).unwrap();
     assert!(signature.verify_tsa_with_trusted_keys(Some(&wrong_tsa_keys)).is_err());
 
@@ -179,6 +187,13 @@ fn signature_scoped_tsa_is_pinned_and_cannot_be_reused() {
 #[test]
 fn rejects_invalid_session_hash_and_unsupported_tsa_scope() {
     assert!(MajikSignatureValidator::validate_session_context_hash("invalid").is_err());
+    let invalid_tsa_payload = serde_json::json!({
+        "digest": { "algorithm": "SHA-256", "value": digest_text("x"), "scope": "unknown" },
+        "nonce": digest_text("nonce"),
+        "timestamp": "2026-01-01T00:00:00.000Z",
+        "tsa": { "id": "tsa.example", "signerFingerprint": digest_text("fingerprint") }
+    });
+    assert!(MajikSignatureValidator::validate_majik_tsa_payload_value(&invalid_tsa_payload).is_err());
     let key = new_key("signroom-validation");
     let result = MajikSignature::sign(
         CONTENT,
