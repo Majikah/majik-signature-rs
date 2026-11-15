@@ -127,7 +127,8 @@ fn session_context_round_trips_json_compact_and_cbor() {
         CONTENT,
         &key,
         Some(&SignOptions { session_context_hash: Some(session_hash.clone()), ..Default::default() }),
-    ).unwrap();
+    )
+    .unwrap();
 
     let json = signature.to_json();
     assert_eq!(MajikSignature::from_json(&json).unwrap().session_context_hash(), Some(session_hash.as_str()));
@@ -193,7 +194,8 @@ fn signature_scoped_tsa_is_pinned_and_cannot_be_reused() {
         CONTENT,
         &signer,
         Some(&SignOptions { session_context_hash: Some(session_hash), ..Default::default() }),
-    ).unwrap();
+    )
+    .unwrap();
     let request = signature.build_tsa_request_payload_with_scope(Some(TsaDigestScope::Signature));
     assert_eq!(request.digest.scope, Some(TsaDigestScope::Signature));
     assert_ne!(request.digest.value, signature.content_hash());
@@ -206,7 +208,8 @@ fn signature_scoped_tsa_is_pinned_and_cannot_be_reused() {
             signer_fingerprint: tsa_keys.signer_id.clone(),
         },
         None,
-    ).unwrap();
+    )
+    .unwrap();
     signature.add_tsa_with_trusted_keys(timestamp.clone(), Some(&tsa_keys)).unwrap();
     assert!(signature.verify_tsa_with_trusted_keys(Some(&tsa_keys)).unwrap().valid);
     assert!(signature.verify_tsa().unwrap().valid);
