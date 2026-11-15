@@ -25,22 +25,14 @@ fn session_context_commitment_is_deterministic_and_validated() {
     assert_eq!(first, "6XSd2ZIRAOWQ+jWxEDkJAkcjeHSAJfzg4PKH8CQ3sD4=");
     assert_eq!(first.len(), 44);
 
-    let changed_challenge = MajikSessionSigningContext {
-        challenge_id: "challenge-002".into(),
-        ..input.clone()
-    };
+    let changed_challenge =
+        MajikSessionSigningContext { challenge_id: "challenge-002".into(), ..input.clone() };
     assert_ne!(build_session_context_hash(&changed_challenge).unwrap(), first);
 
-    let invalid_policy = MajikSessionSigningContext {
-        policy_hash: "not-a-digest".into(),
-        ..input.clone()
-    };
+    let invalid_policy = MajikSessionSigningContext { policy_hash: "not-a-digest".into(), ..input.clone() };
     assert!(build_session_context_hash(&invalid_policy).is_err());
 
-    let invalid_id = MajikSessionSigningContext {
-        session_id: " session-001".into(),
-        ..input
-    };
+    let invalid_id = MajikSessionSigningContext { session_id: " session-001".into(), ..input };
     assert!(build_session_context_hash(&invalid_id).is_err());
 }
 
@@ -70,34 +62,44 @@ fn signs_and_verifies_session_context_and_digest_only() {
         CONTENT,
         &key,
         Some(&SignOptions { session_context_hash: Some(session_hash.clone()), ..Default::default() }),
-    ).unwrap();
+    )
+    .unwrap();
     let keys = MajikSignature::public_keys_from_majik_key(&key).unwrap();
 
     let verified = MajikSignature::verify(CONTENT, &signature, &keys, None).unwrap();
     assert!(verified.valid, "{:?}", verified.reason);
     assert_eq!(verified.session_context_hash.as_deref(), Some(session_hash.as_str()));
 
-    let digest = MajikSignature::verify_digest(
-        signature.content_hash(), &signature, &keys, Some(&session_hash), None,
-    ).unwrap();
+    let digest =
+        MajikSignature::verify_digest(signature.content_hash(), &signature, &keys, Some(&session_hash), None)
+            .unwrap();
     assert!(digest.base.valid, "{:?}", digest.base.reason);
     assert!(digest.commitment_only);
 
-    let missing_context = MajikSignature::verify_digest(
-        signature.content_hash(), &signature, &keys, None, None,
-    ).unwrap();
+    let missing_context =
+        MajikSignature::verify_digest(signature.content_hash(), &signature, &keys, None, None).unwrap();
     assert!(!missing_context.base.valid);
     assert!(missing_context.base.reason.unwrap().contains("session context hash is required"));
 
     let other_context = build_session_context_hash(&context("session-other", "challenge-other")).unwrap();
     let mismatch = MajikSignature::verify_digest(
-        signature.content_hash(), &signature, &keys, Some(&other_context), None,
-    ).unwrap();
+        signature.content_hash(),
+        &signature,
+        &keys,
+        Some(&other_context),
+        None,
+    )
+    .unwrap();
     assert!(!mismatch.base.valid);
 
     let wrong_digest = MajikSignature::verify_digest(
-        &digest_text("different document"), &signature, &keys, Some(&session_hash), None,
-    ).unwrap();
+        &digest_text("different document"),
+        &signature,
+        &keys,
+        Some(&session_hash),
+        None,
+    )
+    .unwrap();
     assert!(!wrong_digest.base.valid);
 }
 
@@ -111,16 +113,16 @@ fn rejects_public_keys_that_do_not_match_the_embedded_record() {
     let verified = MajikSignature::verify(CONTENT, &signature, &other_keys, None).unwrap();
     assert!(!verified.valid);
     assert!(verified.reason.unwrap().contains("fingerprint does not match"));
-    let digest = MajikSignature::verify_digest(
-        signature.content_hash(), &signature, &other_keys, None, None,
-    ).unwrap();
+    let digest =
+        MajikSignature::verify_digest(signature.content_hash(), &signature, &other_keys, None, None).unwrap();
     assert!(!digest.base.valid);
 }
 
 #[test]
 fn session_context_round_trips_json_compact_and_cbor() {
     let key = new_key("signroom-serialization");
-    let session_hash = build_session_context_hash(&context("session-serialization", "challenge-serialization")).unwrap();
+    let session_hash =
+        build_session_context_hash(&context("session-serialization", "challenge-serialization")).unwrap();
     let signature = MajikSignature::sign(
         CONTENT,
         &key,
@@ -133,11 +135,21 @@ fn session_context_round_trips_json_compact_and_cbor() {
     let compact = signature.to_compact();
     assert_eq!(compact.session_context_hash.as_deref(), Some(session_hash.as_str()));
     let keys = signature.extract_public_keys().unwrap();
-    let restored_compact = MajikSignature::from_compact(&compact, &keys.ed_public_key, &keys.ml_dsa_public_key).unwrap();
+    let restored_compact =
+        MajikSignature::from_compact(&compact, &keys.ed_public_key, &keys.ml_dsa_public_key).unwrap();
     assert_eq!(restored_compact.session_context_hash(), Some(session_hash.as_str()));
-    assert!(MajikSignature::verify_digest(
-        signature.content_hash(), &restored_compact, &keys, Some(&session_hash), None,
-    ).unwrap().base.valid);
+    assert!(
+        MajikSignature::verify_digest(
+            signature.content_hash(),
+            &restored_compact,
+            &keys,
+            Some(&session_hash),
+            None,
+        )
+        .unwrap()
+        .base
+        .valid
+    );
 
     let restored_cbor = MajikSignature::from_cbor(&signature.to_cbor().unwrap()).unwrap();
     assert_eq!(restored_cbor.session_context_hash(), Some(session_hash.as_str()));
@@ -151,7 +163,18 @@ fn legacy_signatures_omit_session_fields_and_keep_content_tsa_scope() {
     let json = serde_json::to_value(signature.to_json()).unwrap();
     assert!(json.get("sessionContextHash").is_none());
     assert!(signature.session_context_hash().is_none());
-    assert!(MajikSignature::verify_digest(signature.content_hash(), &signature, &signature.extract_public_keys().unwrap(), None, None).unwrap().base.valid);
+    assert!(
+        MajikSignature::verify_digest(
+            signature.content_hash(),
+            &signature,
+            &signature.extract_public_keys().unwrap(),
+            None,
+            None
+        )
+        .unwrap()
+        .base
+        .valid
+    );
 
     let request = signature.build_tsa_request_payload();
     assert_eq!(request.digest.value, signature.content_hash());
@@ -190,10 +213,7 @@ fn signature_scoped_tsa_is_pinned_and_cannot_be_reused() {
 
     // The TSA field is excluded from the signature-scope commitment, so attachment is stable.
     let restored = MajikSignature::from_cbor(&signature.to_cbor().unwrap()).unwrap();
-    assert_eq!(
-        restored.tsa().unwrap().payload.digest.scope,
-        Some(TsaDigestScope::Signature),
-    );
+    assert_eq!(restored.tsa().unwrap().payload.digest.scope, Some(TsaDigestScope::Signature),);
     assert!(restored.verify_tsa_with_trusted_keys(Some(&tsa_keys)).unwrap().valid);
 
     let wrong_tsa_keys = MajikSignature::public_keys_from_majik_key(&other_signer).unwrap();
