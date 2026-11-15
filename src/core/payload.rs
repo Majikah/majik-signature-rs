@@ -6,7 +6,9 @@
 
 use serde::Serialize;
 
-use crate::core::constants::{MAJIK_SIGNATURE_ATTESTATION_DOMAIN, MAJIK_SIGNATURE_DOMAIN, MAJIK_SIGNATURE_VERSION, MAJIK_TSA_DOMAIN};
+use crate::core::constants::{
+    MAJIK_SIGNATURE_ATTESTATION_DOMAIN, MAJIK_SIGNATURE_DOMAIN, MAJIK_SIGNATURE_VERSION, MAJIK_TSA_DOMAIN,
+};
 use crate::core::types::{MajikSignatureJSON, MajikTsaPayload};
 
 /// Fields that describe a signature being created or verified (TS `PayloadFields`).
