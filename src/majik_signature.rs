@@ -404,6 +404,71 @@ impl MajikSignature {
         })
     }
 
+    /// Verify a hybrid signature against a trusted SHA-256 digest without plaintext bytes.
+    ///
+    /// Session-bound signatures require `expected_session_context_hash` to be supplied.
+    /// Challenge issuance/consumption, signer authorization, and TSA trust remain
+    /// responsibilities of the calling application.
+    pub fn verify_digest<S: SignatureLike + ?Sized>(
+        expected_content_hash: &str,
+        signature: &S,
+        public_keys: &MajikSignerPublicKeys,
+        expected_session_context_hash: Option<&str>,
+        now: Option<Timestamp>,
+    ) -> R<RevisionCommitmentResult> {
+        MajikSignatureValidator::validate_signer_public_keys(public_keys)?;
+        let env = signature.to_signature_json();
+        MajikSignatureValidator::validate_json(&env)?;
+
+        let invalid = |reason: &str| RevisionCommitmentResult {
+            base: VerificationResult {
+                valid: false,
+                signer_id: Some(env.signer_id.clone()),
+                content_hash: Some(env.content_hash.clone()),
+                timestamp: env.timestamp.clone(),
+                content_type: env.content_type.clone(),
+                session_context_hash: env.session_context_hash.clone(),
+                reason: Some(reason.to_string()),
+                ..Default::default()
+            },
+            commitment_only: true,
+        };
+
+        if expected_content_hash.len() != CONTENT_HASH_B64_LEN {
+            return Ok(invalid("Expected content hash must be a base64 SHA-256 digest"));
+        }
+        let digest_bytes = match base64_to_bytes(expected_content_hash) {
+            Ok(bytes) => bytes,
+            Err(_) => return Ok(invalid("Expected content hash is not a valid base64 SHA-256 digest")),
+        };
+        if digest_bytes.len() != 32 || bytes_to_base64(&digest_bytes) != expected_content_hash {
+            return Ok(invalid("Expected content hash is not a canonical SHA-256 digest"));
+        }
+        if env.content_hash != expected_content_hash {
+            return Ok(invalid("Signature contentHash does not match the expected digest"));
+        }
+
+        match expected_session_context_hash {
+            Some(expected) => {
+                if MajikSignatureValidator::validate_session_context_hash(expected).is_err() {
+                    return Ok(invalid("Expected session context hash is invalid"));
+                }
+                if env.session_context_hash.as_deref() != Some(expected) {
+                    return Ok(invalid("Signature session context does not match the expected session"));
+                }
+            }
+            None if env.session_context_hash.is_some() => {
+                return Ok(invalid("Expected session context hash is required for session-bound signatures"));
+            }
+            None => {}
+        }
+
+        if public_keys.signer_id != env.signer_id {
+            return Ok(invalid("Signer key fingerprint does not match signature signerId"));
+        }
+
+        Self::verify_commitment(signature, public_keys, now)
+    }
     // ── SELF-VALIDATE ────────────────────────────────────────────────────────
 
     pub fn validate(&self) -> R<()> {
