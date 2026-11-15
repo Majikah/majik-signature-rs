@@ -27,13 +27,13 @@ serde_json = "1.0.151"
 ciborium = "0.2.2"
 zeroize = { version = "1.9.1", features = ["zeroize_derive"] }
 getrandom = "0.4.3"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1.29.2", features = ["v4"] }
 jiff = "0.2.45"
 thiserror = "2.0.21"
 zip = { version = "9.6.0", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 clap = { version = "4", features = ["derive"], optional = true }
-rpassword = { version = "7", optional = true }
+rpassword = { version = "7.5.5", optional = true }
 
 [features]
 default = []
