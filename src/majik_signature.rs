@@ -25,7 +25,9 @@ use crate::core::cbor::{decode_cbor, encode_cbor, signature_from_cbor, signature
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
-use crate::core::payload::{build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields};
+use crate::core::payload::{
+    build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
+};
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
@@ -634,9 +636,7 @@ impl MajikSignature {
             }
             Some(TsaDigestScope::Content) | None => (self.content_hash.clone(), None),
         };
-        MajikTsaRequest {
-            digest: TsaDigest { algorithm: "SHA-256".into(), value, scope },
-        }
+        MajikTsaRequest { digest: TsaDigest { algorithm: "SHA-256".into(), value, scope } }
     }
 
     /// Attach a trusted timestamp. One-shot: a TSA cannot be replaced once set.
@@ -714,9 +714,8 @@ impl MajikSignature {
         &self,
         trusted_tsa_public_keys: Option<&MajikSignerPublicKeys>,
     ) -> R<VerificationResult> {
-        let tsa = self.tsa.as_ref().ok_or_else(||
-            MajikSignatureError::new("No TSA present on this signature")
-        )?;
+        let tsa =
+            self.tsa.as_ref().ok_or_else(|| MajikSignatureError::new("No TSA present on this signature"))?;
         let expected_digest = match tsa.payload.digest.scope {
             Some(TsaDigestScope::Signature) => {
                 let attestation = build_signature_attestation_bytes(&self.to_json());
