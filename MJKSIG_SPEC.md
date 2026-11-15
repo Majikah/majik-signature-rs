@@ -139,7 +139,7 @@ Offset  Length  Field
 
 ## 4. Payload Schema
 
-The payload section located at byte offset `12` represents the `MultiSigEnvelope` schema. The interfaces below describe its logical, JSON-compatible form. Version 1 serializes this form as UTF-8 JSON. Version 2 serializes it as CBOR as described in §4.4.
+The payload section located at byte offset `12` represents the `MultiSigEnvelope` schema. The interfaces below describe its logical, JSON-compatible form. Version 1 serializes this form as UTF-8 JSON. Version 2 serializes it as CBOR as described in §4.5.
 
 The container version is independent of the `version` fields within the envelope and per-signer records. Those schema versions remain `1` in both payload encodings.
 
