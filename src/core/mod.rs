@@ -10,6 +10,7 @@ pub mod hash;
 pub mod mjksmap;
 pub mod order;
 pub mod payload;
+pub mod session_context;
 pub mod stamp;
 pub mod time;
 pub mod types;

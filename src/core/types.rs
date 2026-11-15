@@ -42,9 +42,12 @@ pub struct MajikSignatureJSON {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_until: Option<ISODateString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tsa: Option<MajikTimestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_chain_hash: Option<String>,
+    /// Base64 SHA-256 commitment to the SignRoom session, challenge, and policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_context_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tsa: Option<MajikTimestamp>,
 }
 
 /// Wire/storage-optimized form: public keys stripped (TS `MajikSignatureCompactJSON`).
@@ -66,15 +69,29 @@ pub struct MajikSignatureCompactJSON {
     pub valid_until: Option<ISODateString>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_chain_hash: Option<String>,
+    /// Optional signed SignRoom session-context commitment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_context_hash: Option<String>,
 }
 
 // ─── Trusted timestamps ──────────────────────────────────────────────────────
+
+/// Scope of a Trusted Timestamp Authority digest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TsaDigestScope {
+    Content,
+    Signature,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TsaDigest {
     /// Always `"SHA-256"`.
     pub algorithm: String,
     pub value: String,
+    /// Omitted for legacy content-hash timestamps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<TsaDigestScope>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +179,8 @@ pub struct SignOptions {
     pub valid_until: Option<String>,
     pub allowlist_hash: Option<String>,
     pub version_chain_hash: Option<String>,
+    /// Optional SHA-256 commitment to a canonical SignRoom session context.
+    pub session_context_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -175,6 +194,9 @@ pub struct VerificationResult {
     pub timestamp: ISODateString,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Signed SignRoom session-context commitment, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_context_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

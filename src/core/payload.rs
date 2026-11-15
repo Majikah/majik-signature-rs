@@ -6,8 +6,10 @@
 
 use serde::Serialize;
 
-use crate::core::constants::{MAJIK_SIGNATURE_DOMAIN, MAJIK_SIGNATURE_VERSION, MAJIK_TSA_DOMAIN};
-use crate::core::types::MajikTsaPayload;
+use crate::core::constants::{
+    MAJIK_SIGNATURE_ATTESTATION_DOMAIN, MAJIK_SIGNATURE_DOMAIN, MAJIK_SIGNATURE_VERSION, MAJIK_TSA_DOMAIN,
+};
+use crate::core::types::{MajikSignatureJSON, MajikTsaPayload};
 
 /// Fields that describe a signature being created or verified (TS `PayloadFields`).
 #[derive(Debug, Clone, Default)]
@@ -26,6 +28,8 @@ pub struct PayloadFields<'a> {
     pub valid_until: Option<&'a str>,
     /// Serialized as `vch` only when `Some`.
     pub version_chain_hash: Option<&'a str>,
+    /// Serialized as `sch` only when `Some`.
+    pub session_context_hash: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -41,6 +45,8 @@ struct CanonicalMeta<'a> {
     vu: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     vch: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sch: Option<&'a str>,
 }
 
 /// Build the canonical byte payload signed by both Ed25519 and ML-DSA-87.
@@ -54,11 +60,58 @@ pub fn build_signing_payload(fields: &PayloadFields<'_>) -> Vec<u8> {
         alh: fields.allowlist_hash,
         vu: fields.valid_until,
         vch: fields.version_chain_hash,
+        sch: fields.session_context_hash,
     };
     // Serializing plain strings/ints to JSON cannot fail.
     let body = serde_json::to_vec(&meta).expect("canonical payload serialization is infallible");
     let mut out = Vec::with_capacity(MAJIK_SIGNATURE_DOMAIN.len() + body.len());
     out.extend_from_slice(MAJIK_SIGNATURE_DOMAIN.as_bytes());
+    out.extend_from_slice(&body);
+    out
+}
+
+/// Build the canonical unsigned per-signer record used by signature-scoped TSA digests.
+/// The TSA property is deliberately excluded to avoid a circular commitment.
+pub fn build_signature_attestation_bytes(signature: &MajikSignatureJSON) -> Vec<u8> {
+    #[derive(Serialize)]
+    struct AttestationMeta<'a> {
+        v: u8,
+        id: &'a str,
+        edpk: &'a str,
+        mlpk: &'a str,
+        hash: &'a str,
+        ct: Option<&'a str>,
+        ts: &'a str,
+        ed: &'a str,
+        ml: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alh: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vu: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vch: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sch: Option<&'a str>,
+    }
+
+    let meta = AttestationMeta {
+        v: signature.version,
+        id: &signature.signer_id,
+        edpk: &signature.signer_ed_public_key,
+        mlpk: &signature.signer_ml_dsa_public_key,
+        hash: &signature.content_hash,
+        ct: signature.content_type.as_deref(),
+        ts: &signature.timestamp,
+        ed: &signature.ed_signature,
+        ml: &signature.ml_dsa_signature,
+        alh: signature.allowlist_hash.as_deref(),
+        vu: signature.valid_until.as_deref(),
+        vch: signature.version_chain_hash.as_deref(),
+        sch: signature.session_context_hash.as_deref(),
+    };
+    let body = serde_json::to_vec(&meta).expect("signature attestation serialization is infallible");
+    let mut out = Vec::with_capacity(MAJIK_SIGNATURE_ATTESTATION_DOMAIN.len() + body.len());
+    out.extend_from_slice(MAJIK_SIGNATURE_ATTESTATION_DOMAIN.as_bytes());
     out.extend_from_slice(&body);
     out
 }

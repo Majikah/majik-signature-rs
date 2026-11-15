@@ -33,10 +33,13 @@ impl FormatHandler for MsixHandler {
         }
         // Only the central directory is read; no entry is decompressed.
         match zip::ZipArchive::new(Cursor::new(bytes)) {
-            Ok(archive) => {
-                let names: Vec<&str> = archive.file_names().collect();
-                names.contains(&"AppxManifest.xml") && names.contains(&"AppxBlockMap.xml")
-            }
+            Ok(archive) => match archive.file_names().collect::<Result<Vec<_>, _>>() {
+                Ok(names) => {
+                    names.iter().any(|name| name.as_ref() == "AppxManifest.xml")
+                        && names.iter().any(|name| name.as_ref() == "AppxBlockMap.xml")
+                }
+                Err(_) => false,
+            },
             Err(_) => false,
         }
     }

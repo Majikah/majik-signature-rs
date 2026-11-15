@@ -11,6 +11,12 @@ pub const MAJIK_ENVELOPE_VERSION: u8 = 1;
 /// MUST NOT change — changing it invalidates all existing signatures.
 pub const MAJIK_SIGNATURE_DOMAIN: &str = "majik-signature-v1:";
 
+/// Domain separator for TSA digests over unsigned signer records.
+pub const MAJIK_SIGNATURE_ATTESTATION_DOMAIN: &str = "majik-signature-attestation-v1:";
+
+/// Domain separator for canonical SignRoom session-context commitments.
+pub const MAJIK_SESSION_CONTEXT_DOMAIN: &str = "majik-signature-session-context-v1:";
+
 /// Domain separator for the seal hash payload.
 pub const MAJIK_SEAL_DOMAIN: &str = "majik-seal-v1:";
 

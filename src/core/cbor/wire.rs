@@ -254,9 +254,16 @@ fn timestamp_to_cbor(tsa: &MajikTimestamp, depth: usize) -> W<Value> {
     if tsa.payload.digest.algorithm != "SHA-256" {
         return fail("tsa.payload.digest.algorithm must be SHA-256");
     }
+    let scope = tsa.payload.digest.scope.map(|value| {
+        text(match value {
+            TsaDigestScope::Content => "content",
+            TsaDigestScope::Signature => "signature",
+        })
+    });
     let digest = MapBuilder::new()
         .put("algorithm", text("SHA-256"))
         .put("value", b64_value(&tsa.payload.digest.value, "tsa.payload.digest.value", SHA256_LEN)?)
+        .put_opt("scope", scope)
         .build();
     let identity = MapBuilder::new()
         .put("id", text(&tsa.payload.tsa.id))
@@ -291,6 +298,12 @@ fn timestamp_from_cbor(input: &Value, depth: usize) -> W<MajikTimestamp> {
     if !matches!(digest.get("algorithm"), Some(Value::Text(a)) if a == "SHA-256") {
         return fail("tsa.payload.digest.algorithm must be SHA-256");
     }
+    let digest_scope = match digest.get("scope") {
+        None => None,
+        Some(Value::Text(scope)) if scope == "content" => Some(TsaDigestScope::Content),
+        Some(Value::Text(scope)) if scope == "signature" => Some(TsaDigestScope::Signature),
+        _ => return fail("tsa.payload.digest.scope must be content or signature"),
+    };
 
     Ok(MajikTimestamp {
         version: 1,
@@ -299,6 +312,7 @@ fn timestamp_from_cbor(input: &Value, depth: usize) -> W<MajikTimestamp> {
             digest: TsaDigest {
                 algorithm: "SHA-256".to_string(),
                 value: b64_from_bytes(digest.get("value"), "tsa.payload.digest.value", SHA256_LEN)?,
+                scope: digest_scope,
             },
             nonce: b64_from_bytes(payload.get("nonce"), "tsa.payload.nonce", SHA256_LEN)?,
             timestamp: required_string(payload.get("timestamp"), "tsa.payload.timestamp")?,
@@ -347,6 +361,10 @@ fn signature_to_cbor_at(sig: &MajikSignatureJSON, depth: usize) -> W<Value> {
         .put_opt("allowlistHash", opt_b64_value(&sig.allowlist_hash, "allowlistHash", SHA256_LEN)?)
         .put_opt("validUntil", opt_text(&sig.valid_until))
         .put_opt("versionChainHash", opt_b64_value(&sig.version_chain_hash, "versionChainHash", SHA256_LEN)?)
+        .put_opt(
+            "sessionContextHash",
+            opt_b64_value(&sig.session_context_hash, "sessionContextHash", SHA256_LEN)?,
+        )
         .put_opt("tsa", tsa)
         .build())
 }
@@ -365,6 +383,8 @@ fn signature_from_cbor_at(input: &Value, depth: usize) -> W<MajikSignatureJSON> 
     let valid_until = optional_string(obj.get("validUntil"), "validUntil")?;
     let allowlist_hash = opt_b64_from_bytes(obj.get("allowlistHash"), "allowlistHash", SHA256_LEN)?;
     let version_chain_hash = opt_b64_from_bytes(obj.get("versionChainHash"), "versionChainHash", SHA256_LEN)?;
+    let session_context_hash =
+        opt_b64_from_bytes(obj.get("sessionContextHash"), "sessionContextHash", SHA256_LEN)?;
     let tsa = obj.get("tsa").map(|t| timestamp_from_cbor(t, depth + 1)).transpose()?;
 
     Ok(MajikSignatureJSON {
@@ -393,6 +413,7 @@ fn signature_from_cbor_at(input: &Value, depth: usize) -> W<MajikSignatureJSON> 
         valid_until,
         tsa,
         version_chain_hash,
+        session_context_hash,
     })
 }
 

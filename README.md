@@ -36,6 +36,57 @@ let results = MajikSignature::verify_file(&signed.blob, &pk, None)?;
 assert!(results[0].valid);
 ```
 
+## SignRoom session-bound signatures
+
+SignRoom can bind a hybrid signature to a specific session, one-time challenge, and immutable policy snapshot. The helper commits to the canonical `{ v, sessionId, challengeId, policyHash }` object using a domain-separated SHA-256 hash. Supply the resulting hash through `SignOptions::session_context_hash`:
+
+```rust
+let context = MajikSessionSigningContext {
+    session_id: session_id.to_string(),
+    challenge_id: challenge_id.to_string(),
+    policy_hash: bytes_to_base64(&hash_content(policy_snapshot.as_bytes())),
+};
+let session_hash = build_session_context_hash(&context)?;
+let signature = MajikSignature::sign(
+    document_bytes,
+    &signer_key,
+    Some(&SignOptions {
+        session_context_hash: Some(session_hash.clone()),
+        ..Default::default()
+    }),
+)?;
+
+// Verify a trusted document digest without loading the plaintext bytes.
+let result = MajikSignature::verify_digest(
+    &trusted_content_hash,
+    &signature,
+    &signer_public_keys,
+    Some(&session_hash),
+    None,
+)?;
+assert!(result.base.valid);
+```
+
+Digest-only verification requires the expected session-context hash for session-bound signatures. The context commitment does not itself authorize a signer, issue or consume a one-time challenge, or establish TSA trust; the session service remains responsible for those checks.
+
+## Signature-scoped Trusted Timestamps
+
+Legacy TSA requests remain content-scoped. To attest to the complete unsigned signer record (including its hybrid signatures and session commitment), request the signature scope and pin the TSA to an independently trusted key:
+
+```rust
+let request = signature.build_tsa_request_payload_with_scope(Some(TsaDigestScope::Signature));
+let timestamp = MajikSignature::sign_tsa(
+    &request,
+    &tsa_key,
+    MajikTsaIdentity { id: tsa_id, signer_fingerprint: tsa_fingerprint },
+    None,
+)?;
+signature.add_tsa_with_trusted_keys(timestamp, Some(&trusted_tsa_public_keys))?;
+assert!(signature.verify_tsa_with_trusted_keys(Some(&trusted_tsa_public_keys))?.valid);
+```
+
+Signature-scoped attestations exclude the TSA field itself to avoid a circular commitment. Omitting the digest scope preserves the legacy content-hash format. `add_tsa` and `verify_tsa` remain available as compatibility methods that trust the TSA public key embedded in its signature.
+
 ### Multi-signer, allowlist, seal
 
 ```rust
@@ -73,7 +124,7 @@ src/
 ├── majik_signature.rs          ← majik-signature.ts
 ├── anchor/{mod.rs,types.rs}
 ├── core/
-│   ├── constants.rs errors.rs hash.rs payload.rs types.rs validator.rs
+│   ├── constants.rs errors.rs hash.rs payload.rs session_context.rs types.rs validator.rs
 │   ├── envelope.rs mjksmap.rs order.rs
 │   ├── time.rs collate.rs      ← Rust-only helpers (JS Date / localeCompare semantics)
 │   ├── embed/
@@ -92,6 +143,8 @@ src/
 - **Zeroization.** Secret keys are read into `Zeroizing` buffers; `ed25519-dalek`/`fips204` key types are `ZeroizeOnDrop`. The TS clone-and-wipe `try/finally` is replaced by RAII.
 - **Errors.** One `MajikSignatureError` enum (variants = the TS subclasses: `Validation { field }`, `Verification`, `Key`, `Serialization`, `Allowlist { signer_id }`).
 - **No adapter.** TS threads a `MajikSignatureStaticAdapter` to avoid a circular import; Rust modules reference each other directly.
+- **SignRoom.** `build_session_context_hash` derives the canonical session/challenge/policy commitment; pass it in `SignOptions::session_context_hash`. `verify_digest` verifies the hybrid signature against a trusted digest without plaintext and requires the expected context for session-bound signatures.
+- **TSA scope and trust.** `build_tsa_request_payload_with_scope(Some(TsaDigestScope::Signature))` attests to the unsigned signer record. Use `add_tsa_with_trusted_keys` / `verify_tsa_with_trusted_keys` to pin a TSA; the older methods remain compatible with embedded-key verification.
 
 ## Interoperability
 

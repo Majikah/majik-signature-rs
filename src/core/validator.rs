@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
+use crate::core::hash::{base64_to_bytes, bytes_to_base64};
 use crate::core::time::{is_valid_date, parse_iso_millis};
 use crate::core::types::{
     ExpectedSigner, MajikSignatureJSON, MajikSignerPublicKeys, MajikTimestamp, MajikTsaPayload,
@@ -215,6 +216,15 @@ impl MajikSignatureValidator {
                 ));
             }
         }
+        if let Some(sch) = j.get("sessionContextHash") {
+            let value = sch.as_str().ok_or_else(|| {
+                verr(
+                    "sessionContextHash must be a canonical base64 SHA-256 digest",
+                    Some("sessionContextHash"),
+                )
+            })?;
+            Self::validate_session_context_hash(value)?;
+        }
         Ok(())
     }
 
@@ -313,6 +323,26 @@ impl MajikSignatureValidator {
             return Err(verr(
                 format!("sealHash must be exactly {SEAL_HASH_HEX_LEN} hex chars (SHA3-512)"),
                 Some("sealHash"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate a canonical base64-encoded SHA-256 SignRoom context commitment.
+    pub fn validate_session_context_hash(value: &str) -> R {
+        if value.len() != CONTENT_HASH_B64_LEN {
+            return Err(verr(
+                "sessionContextHash must be a 44-character base64 SHA-256 digest",
+                Some("sessionContextHash"),
+            ));
+        }
+        let decoded = base64_to_bytes(value).map_err(|_| {
+            verr("sessionContextHash must be a canonical base64 SHA-256 digest", Some("sessionContextHash"))
+        })?;
+        if decoded.len() != 32 || bytes_to_base64(&decoded) != value {
+            return Err(verr(
+                "sessionContextHash must be a canonical base64 SHA-256 digest",
+                Some("sessionContextHash"),
             ));
         }
         Ok(())
@@ -430,6 +460,11 @@ impl MajikSignatureValidator {
             .ok_or_else(|| verr("TSA payload missing digest", None))?;
         if d.get("algorithm").and_then(Value::as_str) != Some("SHA-256") {
             return Err(verr("TSA payload digest algorithm must be SHA-256", None));
+        }
+        if let Some(scope) = d.get("scope") {
+            if !matches!(scope.as_str(), Some("content") | Some("signature")) {
+                return Err(verr("TSA payload digest scope must be content or signature", None));
+            }
         }
         let vlen = d.get("value").and_then(Value::as_str).map(|s| s.chars().count());
         if vlen != Some(CONTENT_HASH_B64_LEN) {
