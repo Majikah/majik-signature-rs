@@ -361,7 +361,10 @@ fn signature_to_cbor_at(sig: &MajikSignatureJSON, depth: usize) -> W<Value> {
         .put_opt("allowlistHash", opt_b64_value(&sig.allowlist_hash, "allowlistHash", SHA256_LEN)?)
         .put_opt("validUntil", opt_text(&sig.valid_until))
         .put_opt("versionChainHash", opt_b64_value(&sig.version_chain_hash, "versionChainHash", SHA256_LEN)?)
-        .put_opt("sessionContextHash", opt_b64_value(&sig.session_context_hash, "sessionContextHash", SHA256_LEN)?)
+        .put_opt(
+            "sessionContextHash",
+            opt_b64_value(&sig.session_context_hash, "sessionContextHash", SHA256_LEN)?,
+        )
         .put_opt("tsa", tsa)
         .build())
 }
@@ -380,7 +383,8 @@ fn signature_from_cbor_at(input: &Value, depth: usize) -> W<MajikSignatureJSON> 
     let valid_until = optional_string(obj.get("validUntil"), "validUntil")?;
     let allowlist_hash = opt_b64_from_bytes(obj.get("allowlistHash"), "allowlistHash", SHA256_LEN)?;
     let version_chain_hash = opt_b64_from_bytes(obj.get("versionChainHash"), "versionChainHash", SHA256_LEN)?;
-    let session_context_hash = opt_b64_from_bytes(obj.get("sessionContextHash"), "sessionContextHash", SHA256_LEN)?;
+    let session_context_hash =
+        opt_b64_from_bytes(obj.get("sessionContextHash"), "sessionContextHash", SHA256_LEN)?;
     let tsa = obj.get("tsa").map(|t| timestamp_from_cbor(t, depth + 1)).transpose()?;
 
     Ok(MajikSignatureJSON {
