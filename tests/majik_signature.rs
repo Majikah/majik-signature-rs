@@ -34,6 +34,7 @@ fn payload_is_byte_exact() {
         allowlist_hash: None,
         valid_until: Some("2027-01-01T00:00:00.000Z"),
         version_chain_hash: None,
+        session_context_hash: None,
     });
     assert_eq!(
         String::from_utf8(p).unwrap(),
