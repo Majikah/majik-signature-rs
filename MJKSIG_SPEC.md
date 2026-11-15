@@ -51,27 +51,6 @@ Where:
 *   **Allowlist:** The first signer may optionally restrict future signers by embedding an `ExpectedSigner` array. The establisher commits to this allowlist cryptographically via the `allowlistHash` in their canonical payload.
 *   **Seal:** The issuer (allowlist establisher) can permanently lock the envelope against further signatures. Sealing computes a SHA3-512 hash over the current signatories and a seal timestamp. The seal hash domain prefix is `majik-seal-v1:`. 
   
-### 2.5 SignRoom Session Context and Digest-Only Verification
-
-A SignRoom participant may bind their signature to an immutable signing attempt. The session context consists of:
-
-- `sessionId`: stable session identifier, non-empty, at most 256 UTF-16 code units, with no surrounding whitespace.
-- `challengeId`: single-use challenge identifier issued for that signing attempt, with the same identifier constraints.
-- `policyHash`: canonical padded Base64 encoding of a 32-byte SHA-256 digest of the immutable session policy snapshot.
-
-The context commitment is the Base64 SHA-256 digest of the domain prefix `majik-signature-session-context-v1:` followed by UTF-8 compact JSON with properties in this exact order: `v`, `sessionId`, `challengeId`, `policyHash`. The resulting `sessionContextHash` is included as `sch` in the canonical signature payload, so changing the session, challenge, or policy commitment invalidates both hybrid signatures.
-
-Implementations may verify against an independently trusted Base64 SHA-256 content digest without retaining plaintext. Such digest-only verification must validate the canonical digest, verify both hybrid signatures, and require the expected session-context hash whenever the signature carries `sessionContextHash`. It proves the signer's cryptographic commitment to the supplied digest and context; it does not authorize the signer or prove that a challenge was issued or consumed. Those remain application/session-service responsibilities.
-
-### 2.6 Trusted Timestamp Digest Scope
-
-A TSA digest descriptor may optionally include `scope`, with values `content` or `signature`:
-
-- Omitted scope (legacy) and `content` scope both bind the TSA to the signature's `contentHash`.
-- `signature` scope binds the TSA to the SHA-256 digest of the domain-separated canonical unsigned signer record: `majik-signature-attestation-v1:` followed by compact JSON `{ v, id, edpk, mlpk, hash, ct, ts, ed, ml[, alh][, vu][, vch][, sch] }`. The optional fields are omitted when absent, except `ct`, which is always serialized as its string value or `null`. The `tsa` property is excluded to prevent a circular commitment.
-
-The TSA signs its normal canonical TSA payload including the digest scope. Attaching/verifying a TSA must recompute the scoped digest and ensure the TSA identity fingerprint equals the embedded TSA-signature signer ID. Applications should additionally pin that identity to an independently trusted TSA public-key fingerprint; embedded keys alone do not establish trust.
-
 ### 2.4 File Versioning & Revision Chains
 
 MJKSIG supports an append-only revision chain (`fileVersions`) for workflows where a signer visually mutates the document itself (e.g. a drawn signature stamp) before signing — which changes the file's byte content on every hand-off, not just its metadata.
@@ -107,6 +86,28 @@ Verifiers should treat a file as chain-valid only when **both** checks pass for 
 `fileVersions` is intentionally metadata-only — it never stores revision content directly, to avoid the container growing linearly with each signer for large files. Storage of the actual per-revision bytes, if needed for full revision verification, is left to the application layer.
 
 ---
+
+
+### 2.5 SignRoom Session Context and Digest-Only Verification
+
+A SignRoom participant may bind their signature to an immutable signing attempt. The session context consists of:
+
+- `sessionId`: stable session identifier, non-empty, at most 256 UTF-16 code units, with no surrounding whitespace.
+- `challengeId`: single-use challenge identifier issued for that signing attempt, with the same identifier constraints.
+- `policyHash`: canonical padded Base64 encoding of a 32-byte SHA-256 digest of the immutable session policy snapshot.
+
+The context commitment is the Base64 SHA-256 digest of the domain prefix `majik-signature-session-context-v1:` followed by UTF-8 compact JSON with properties in this exact order: `v`, `sessionId`, `challengeId`, `policyHash`. The resulting `sessionContextHash` is included as `sch` in the canonical signature payload, so changing the session, challenge, or policy commitment invalidates both hybrid signatures.
+
+Implementations may verify against an independently trusted Base64 SHA-256 content digest without retaining plaintext. Such digest-only verification must validate the canonical digest, verify both hybrid signatures, and require the expected session-context hash whenever the signature carries `sessionContextHash`. It proves the signer's cryptographic commitment to the supplied digest and context; it does not authorize the signer or prove that a challenge was issued or consumed. Those remain application/session-service responsibilities.
+
+### 2.6 Trusted Timestamp Digest Scope
+
+A TSA digest descriptor may optionally include `scope`, with values `content` or `signature`:
+
+- Omitted scope (legacy) and `content` scope both bind the TSA to the signature's `contentHash`.
+- `signature` scope binds the TSA to the SHA-256 digest of the domain-separated canonical unsigned signer record: `majik-signature-attestation-v1:` followed by compact JSON `{ v, id, edpk, mlpk, hash, ct, ts, ed, ml[, alh][, vu][, vch][, sch] }`. The optional fields are omitted when absent, except `ct`, which is always serialized as its string value or `null`. The `tsa` property is excluded to prevent a circular commitment.
+
+The TSA signs its normal canonical TSA payload including the digest scope. Attaching/verifying a TSA must recompute the scoped digest and ensure the TSA identity fingerprint equals the embedded TSA-signature signer ID. Applications should additionally pin that identity to an independently trusted TSA public-key fingerprint; embedded keys alone do not establish trust.
 
 ## 3. Binary Layout
 
