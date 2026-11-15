@@ -430,6 +430,7 @@ impl MajikSignatureEmbed {
                         signer_id: Some(sig.signer_id.clone()),
                         content_hash: Some(sig.content_hash.clone()),
                         timestamp: sig.timestamp.clone(),
+                        session_context_hash: sig.session_context_hash.clone(),
                         reason,
                         ..Default::default()
                     }
