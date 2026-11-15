@@ -25,7 +25,7 @@ use crate::core::cbor::{decode_cbor, encode_cbor, signature_from_cbor, signature
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
-use crate::core::payload::{build_signing_payload, build_tsa_canonical_bytes, PayloadFields};
+use crate::core::payload::{build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields};
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
@@ -84,6 +84,7 @@ pub struct MajikSignature {
     allowlist_hash: Option<String>,
     valid_until: Option<ISODateString>,
     version_chain_hash: Option<String>,
+    session_context_hash: Option<String>,
     tsa: Option<MajikTimestamp>,
 }
 
@@ -102,6 +103,7 @@ impl MajikSignature {
             allowlist_hash: data.allowlist_hash,
             valid_until: data.valid_until,
             version_chain_hash: data.version_chain_hash,
+            session_context_hash: data.session_context_hash,
             tsa: data.tsa,
         }
     }
@@ -146,6 +148,10 @@ impl MajikSignature {
     pub fn version_chain_hash(&self) -> Option<&str> {
         self.version_chain_hash.as_deref()
     }
+    /// Signed commitment to the SignRoom session, challenge, and policy.
+    pub fn session_context_hash(&self) -> Option<&str> {
+        self.session_context_hash.as_deref()
+    }
     pub fn tsa(&self) -> Option<&MajikTimestamp> {
         self.tsa.as_ref()
     }
@@ -175,6 +181,9 @@ impl MajikSignature {
         MajikSignatureValidator::validate_content(content)?;
         MajikSignatureValidator::validate_content_type(options.content_type.as_deref())?;
         MajikSignatureValidator::validate_valid_until(options.valid_until.as_deref())?;
+        if let Some(session_hash) = options.session_context_hash.as_deref() {
+            MajikSignatureValidator::validate_session_context_hash(session_hash)?;
+        }
 
         if key.is_locked() {
             return Err(MajikSignatureError::key("MajikKey is locked. Call unlock() before signing."));
@@ -214,6 +223,7 @@ impl MajikSignature {
             allowlist_hash: options.allowlist_hash.as_deref(),
             valid_until: options.valid_until.as_deref(),
             version_chain_hash: options.version_chain_hash.as_deref(),
+            session_context_hash: options.session_context_hash.as_deref(),
         });
 
         // Ed25519 — the stored secret key is seed ‖ public (64 bytes); the seed is the first half.
@@ -253,6 +263,7 @@ impl MajikSignature {
             valid_until: options.valid_until.clone(),
             tsa: None,
             version_chain_hash: options.version_chain_hash.clone(),
+            session_context_hash: options.session_context_hash.clone(),
         }))
     }
 
@@ -280,9 +291,19 @@ impl MajikSignature {
             content_hash: Some(env.content_hash.clone()),
             timestamp: env.timestamp.clone(),
             content_type: env.content_type.clone(),
+            session_context_hash: env.session_context_hash.clone(),
             reason,
             ..Default::default()
         };
+
+        if public_keys.signer_id != env.signer_id {
+            return Ok(invalid(Some("Signer key fingerprint does not match signature signerId".into())));
+        }
+        if bytes_to_base64(&public_keys.ed_public_key) != env.signer_ed_public_key
+            || bytes_to_base64(&public_keys.ml_dsa_public_key) != env.signer_ml_dsa_public_key
+        {
+            return Ok(invalid(Some("Supplied signer public keys do not match the signature record".into())));
+        }
 
         let recomputed = bytes_to_base64(&hash_content(content));
         if recomputed != env.content_hash {
@@ -314,6 +335,7 @@ impl MajikSignature {
             content_hash: Some(env.content_hash),
             timestamp: env.timestamp,
             content_type: env.content_type,
+            session_context_hash: env.session_context_hash,
             ..Default::default()
         })
     }
@@ -336,11 +358,21 @@ impl MajikSignature {
                 content_hash: Some(env.content_hash.clone()),
                 timestamp: env.timestamp.clone(),
                 content_type: env.content_type.clone(),
+                session_context_hash: env.session_context_hash.clone(),
                 reason,
                 ..Default::default()
             },
             commitment_only: true,
         };
+
+        if public_keys.signer_id != env.signer_id {
+            return Ok(invalid(Some("Signer key fingerprint does not match signature signerId".into())));
+        }
+        if bytes_to_base64(&public_keys.ed_public_key) != env.signer_ed_public_key
+            || bytes_to_base64(&public_keys.ml_dsa_public_key) != env.signer_ml_dsa_public_key
+        {
+            return Ok(invalid(Some("Supplied signer public keys do not match the signature record".into())));
+        }
 
         let payload = payload_for(&env);
         if let Some(reason) = check_crypto(&env, public_keys, &payload) {
@@ -365,6 +397,7 @@ impl MajikSignature {
                 content_hash: Some(env.content_hash),
                 timestamp: env.timestamp,
                 content_type: env.content_type,
+                session_context_hash: env.session_context_hash,
                 ..Default::default()
             },
             commitment_only: true,
@@ -416,6 +449,7 @@ impl MajikSignature {
             valid_until: self.valid_until.clone(),
             tsa: self.tsa.clone(),
             version_chain_hash: self.version_chain_hash.clone(),
+            session_context_hash: self.session_context_hash.clone(),
         }
     }
 
@@ -611,6 +645,7 @@ impl MajikSignature {
             allowlist_hash: self.allowlist_hash.clone(),
             valid_until: self.valid_until.clone(),
             version_chain_hash: self.version_chain_hash.clone(),
+            session_context_hash: self.session_context_hash.clone(),
         }
     }
 
@@ -639,6 +674,7 @@ impl MajikSignature {
             valid_until: compact.valid_until.clone(),
             tsa: None,
             version_chain_hash: compact.version_chain_hash.clone(),
+            session_context_hash: compact.session_context_hash.clone(),
         })
     }
 
@@ -679,6 +715,7 @@ fn payload_for(env: &MajikSignatureJSON) -> Vec<u8> {
         allowlist_hash: env.allowlist_hash.as_deref(),
         valid_until: env.valid_until.as_deref(),
         version_chain_hash: env.version_chain_hash.as_deref(),
+        session_context_hash: env.session_context_hash.as_deref(),
     })
 }
 
