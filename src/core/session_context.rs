@@ -27,7 +27,9 @@ struct CanonicalSessionContext<'a> {
 fn validate_identifier(value: &str, field: &str) -> MajikSignatureResult<()> {
     if value.is_empty() || value.encode_utf16().count() > 256 || value.trim() != value {
         return Err(MajikSignatureError::validation(
-            format!("{field} must be a non-empty string of at most 256 characters without surrounding whitespace"),
+            format!(
+                "{field} must be a non-empty string of at most 256 characters without surrounding whitespace"
+            ),
             Some(field),
         ));
     }
@@ -41,10 +43,12 @@ fn validate_policy_hash(value: &str) -> MajikSignatureResult<()> {
             Some("policyHash"),
         ));
     }
-    let decoded = base64_to_bytes(value).map_err(|_| MajikSignatureError::validation(
-        "policyHash must be a canonical base64-encoded SHA-256 digest",
-        Some("policyHash"),
-    ))?;
+    let decoded = base64_to_bytes(value).map_err(|_| {
+        MajikSignatureError::validation(
+            "policyHash must be a canonical base64-encoded SHA-256 digest",
+            Some("policyHash"),
+        )
+    })?;
     if decoded.len() != 32 || bytes_to_base64(&decoded) != value {
         return Err(MajikSignatureError::validation(
             "policyHash must be a canonical base64-encoded SHA-256 digest",
