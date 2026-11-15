@@ -619,25 +619,80 @@ impl MajikSignature {
 
     // ── TRUSTED TIMESTAMPS ───────────────────────────────────────────────────
 
+    /// Build a legacy content-scoped TSA request.
     pub fn build_tsa_request_payload(&self) -> MajikTsaRequest {
+        self.build_tsa_request_payload_with_scope(None)
+    }
+
+    /// Build a TSA request scoped to the document content or the complete signer record.
+    /// `None` and `Some(Content)` preserve the legacy content-hash request shape.
+    pub fn build_tsa_request_payload_with_scope(&self, scope: Option<TsaDigestScope>) -> MajikTsaRequest {
+        let (value, scope) = match scope {
+            Some(TsaDigestScope::Signature) => {
+                let attestation = build_signature_attestation_bytes(&self.to_json());
+                (bytes_to_base64(&hash_content(&attestation)), Some(TsaDigestScope::Signature))
+            }
+            Some(TsaDigestScope::Content) | None => (self.content_hash.clone(), None),
+        };
         MajikTsaRequest {
-            digest: TsaDigest { algorithm: "SHA-256".into(), value: self.content_hash.clone() },
+            digest: TsaDigest { algorithm: "SHA-256".into(), value, scope },
         }
     }
 
     /// Attach a trusted timestamp. One-shot: a TSA cannot be replaced once set.
+    /// For compatibility, this uses the TSA public key embedded in the timestamp.
     pub fn add_tsa(&mut self, tsa: MajikTimestamp) -> R<()> {
+        self.add_tsa_with_trusted_keys(tsa, None)
+    }
+
+    /// Attach a timestamp, optionally pinning it to an independently trusted TSA key.
+    pub fn add_tsa_with_trusted_keys(
+        &mut self,
+        tsa: MajikTimestamp,
+        trusted_tsa_public_keys: Option<&MajikSignerPublicKeys>,
+    ) -> R<()> {
         if self.tsa.is_some() {
             return Err(MajikSignatureError::new("TSA is already set and cannot be replaced"));
         }
         MajikSignatureValidator::validate_majik_timestamp(&tsa)?;
-        if tsa.payload.digest.value != self.content_hash {
-            return Err(MajikSignatureError::new("TSA digest does not match signature contentHash"));
+        let expected_digest = match tsa.payload.digest.scope {
+            Some(TsaDigestScope::Signature) => {
+                let attestation = build_signature_attestation_bytes(&self.to_json());
+                bytes_to_base64(&hash_content(&attestation))
+            }
+            Some(TsaDigestScope::Content) | None => self.content_hash.clone(),
+        };
+        if tsa.payload.digest.value != expected_digest {
+            let message = if tsa.payload.digest.scope == Some(TsaDigestScope::Signature) {
+                "TSA digest does not match the canonical signature record"
+            } else {
+                "TSA digest does not match signature contentHash"
+            };
+            return Err(MajikSignatureError::new(message));
         }
+        if tsa.payload.tsa.signer_fingerprint != tsa.signature.signer_id {
+            return Err(MajikSignatureError::verification(
+                "TSA identity fingerprint does not match the embedded TSA signer",
+            ));
+        }
+
         let canonical = build_tsa_canonical_bytes(&tsa.payload);
         let tsa_sig = MajikSignature::from_json(&tsa.signature)?;
-        let public_keys = tsa_sig.extract_public_keys()?;
-        let result = MajikSignature::verify(&canonical, &tsa_sig, &public_keys, None)?;
+        let embedded_public_keys = tsa_sig.extract_public_keys()?;
+        let verification_keys = if let Some(trusted) = trusted_tsa_public_keys {
+            MajikSignatureValidator::validate_signer_public_keys(trusted)?;
+            if tsa.payload.tsa.signer_fingerprint != trusted.signer_id
+                || tsa.signature.signer_id != trusted.signer_id
+            {
+                return Err(MajikSignatureError::verification(
+                    "TSA identity does not match the trusted TSA public-key fingerprint",
+                ));
+            }
+            trusted
+        } else {
+            &embedded_public_keys
+        };
+        let result = MajikSignature::verify(&canonical, &tsa_sig, verification_keys, None)?;
         if !result.valid {
             return Err(MajikSignatureError::verification(format!(
                 "TSA signature verification failed: {}",
@@ -649,16 +704,57 @@ impl MajikSignature {
     }
 
     /// Re-verify the embedded TSA token (e.g. after deserialization).
+    /// Uses the embedded TSA public key unless a trusted key is explicitly supplied.
     pub fn verify_tsa(&self) -> R<VerificationResult> {
-        let tsa =
-            self.tsa.as_ref().ok_or_else(|| MajikSignatureError::new("No TSA present on this signature"))?;
-        if tsa.payload.digest.value != self.content_hash {
-            return Err(MajikSignatureError::new("TSA digest does not match signature contentHash"));
+        self.verify_tsa_with_trusted_keys(None)
+    }
+
+    /// Re-verify the embedded TSA token, optionally pinning its identity to a trusted key.
+    pub fn verify_tsa_with_trusted_keys(
+        &self,
+        trusted_tsa_public_keys: Option<&MajikSignerPublicKeys>,
+    ) -> R<VerificationResult> {
+        let tsa = self.tsa.as_ref().ok_or_else(||
+            MajikSignatureError::new("No TSA present on this signature")
+        )?;
+        let expected_digest = match tsa.payload.digest.scope {
+            Some(TsaDigestScope::Signature) => {
+                let attestation = build_signature_attestation_bytes(&self.to_json());
+                bytes_to_base64(&hash_content(&attestation))
+            }
+            Some(TsaDigestScope::Content) | None => self.content_hash.clone(),
+        };
+        if tsa.payload.digest.value != expected_digest {
+            let message = if tsa.payload.digest.scope == Some(TsaDigestScope::Signature) {
+                "TSA digest does not match the canonical signature record"
+            } else {
+                "TSA digest does not match signature contentHash"
+            };
+            return Err(MajikSignatureError::new(message));
         }
+        if tsa.payload.tsa.signer_fingerprint != tsa.signature.signer_id {
+            return Err(MajikSignatureError::verification(
+                "TSA identity fingerprint does not match the embedded TSA signer",
+            ));
+        }
+
         let canonical = build_tsa_canonical_bytes(&tsa.payload);
         let tsa_sig = MajikSignature::from_json(&tsa.signature)?;
-        let public_keys = tsa_sig.extract_public_keys()?;
-        MajikSignature::verify(&canonical, &tsa_sig, &public_keys, None)
+        let embedded_public_keys = tsa_sig.extract_public_keys()?;
+        let verification_keys = if let Some(trusted) = trusted_tsa_public_keys {
+            MajikSignatureValidator::validate_signer_public_keys(trusted)?;
+            if tsa.payload.tsa.signer_fingerprint != trusted.signer_id
+                || tsa.signature.signer_id != trusted.signer_id
+            {
+                return Err(MajikSignatureError::verification(
+                    "TSA identity does not match the trusted TSA public-key fingerprint",
+                ));
+            }
+            trusted
+        } else {
+            &embedded_public_keys
+        };
+        MajikSignature::verify(&canonical, &tsa_sig, verification_keys, None)
     }
 
     /// Sign a TSA request and return a complete [`MajikTimestamp`] (server-side use).
