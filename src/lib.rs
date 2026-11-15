@@ -38,4 +38,6 @@ pub use crate::core::stamp::{ImageSignatureError, MajikImageSignature, StampResu
 // ── Low-level utilities (opt-in) ────────────────────────────────────────────
 pub use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 pub use crate::core::payload::{build_signing_payload, build_tsa_canonical_bytes, PayloadFields};
+pub use crate::core::payload::build_signature_attestation_bytes;
+pub use crate::core::session_context::{build_session_context_hash, MajikSessionSigningContext};
 pub use crate::core::validator::MajikSignatureValidator;
