@@ -853,6 +853,7 @@ impl MajikSignature {
                 content_hash: Some(compact.content_hash.clone()),
                 timestamp: compact.timestamp.clone(),
                 content_type: compact.content_type.clone(),
+                session_context_hash: compact.session_context_hash.clone(),
                 reason: Some(format!(
                     "signerId mismatch: envelope is \"{}\", provided publicKeys are for \"{}\"",
                     compact.signer_id, public_keys.signer_id
