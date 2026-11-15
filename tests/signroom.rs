@@ -22,6 +22,7 @@ fn session_context_commitment_is_deterministic_and_validated() {
     let input = context("session-001", "challenge-001");
     let first = build_session_context_hash(&input).unwrap();
     assert_eq!(build_session_context_hash(&input).unwrap(), first);
+    assert_eq!(first, "6XSd2ZIRAOWQ+jWxEDkJAkcjeHSAJfzg4PKH8CQ3sD4=");
     assert_eq!(first.len(), 44);
 
     let changed_challenge = MajikSessionSigningContext {
@@ -41,6 +42,24 @@ fn session_context_commitment_is_deterministic_and_validated() {
         ..input
     };
     assert!(build_session_context_hash(&invalid_id).is_err());
+}
+
+#[test]
+fn session_context_is_appended_to_the_canonical_signing_payload() {
+    let payload = build_signing_payload(&PayloadFields {
+        signer_id: "id",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        content_hash: "hash",
+        content_type: None,
+        allowlist_hash: Some("alh"),
+        valid_until: Some("vu"),
+        version_chain_hash: Some("vch"),
+        session_context_hash: Some("sch"),
+    });
+    assert_eq!(
+        String::from_utf8(payload).unwrap(),
+        "majik-signature-v1:{\"v\":1,\"id\":\"id\",\"ts\":\"2026-01-01T00:00:00.000Z\",\"ct\":null,\"hash\":\"hash\",\"alh\":\"alh\",\"vu\":\"vu\",\"vch\":\"vch\",\"sch\":\"sch\"}",
+    );
 }
 
 #[test]
