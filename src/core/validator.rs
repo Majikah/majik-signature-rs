@@ -217,10 +217,12 @@ impl MajikSignatureValidator {
             }
         }
         if let Some(sch) = j.get("sessionContextHash") {
-            let value = sch.as_str().ok_or_else(|| verr(
-                "sessionContextHash must be a canonical base64 SHA-256 digest",
-                Some("sessionContextHash"),
-            ))?;
+            let value = sch.as_str().ok_or_else(|| {
+                verr(
+                    "sessionContextHash must be a canonical base64 SHA-256 digest",
+                    Some("sessionContextHash"),
+                )
+            })?;
             Self::validate_session_context_hash(value)?;
         }
         Ok(())
@@ -334,10 +336,9 @@ impl MajikSignatureValidator {
                 Some("sessionContextHash"),
             ));
         }
-        let decoded = base64_to_bytes(value).map_err(|_| verr(
-            "sessionContextHash must be a canonical base64 SHA-256 digest",
-            Some("sessionContextHash"),
-        ))?;
+        let decoded = base64_to_bytes(value).map_err(|_| {
+            verr("sessionContextHash must be a canonical base64 SHA-256 digest", Some("sessionContextHash"))
+        })?;
         if decoded.len() != 32 || bytes_to_base64(&decoded) != value {
             return Err(verr(
                 "sessionContextHash must be a canonical base64 SHA-256 digest",
