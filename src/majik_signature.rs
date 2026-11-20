@@ -959,10 +959,7 @@ impl MajikSignature {
             file,
             key,
             Some(&SignDetachedOptions {
-                embed: EmbedOptions {
-                    mime_type: options.mime_type.clone(),
-                    ..Default::default()
-                },
+                embed: EmbedOptions { mime_type: options.mime_type.clone(), ..Default::default() },
                 content_type: options.content_type.clone(),
                 timestamp: options.timestamp.clone(),
                 valid_until: options.valid_until.clone(),
@@ -1007,8 +1004,7 @@ impl MajikSignature {
             ));
         }
 
-        let envelope =
-            crate::core::envelope::MajikSignatureEnvelope::from_input(envelope_input.into())?;
+        let envelope = crate::core::envelope::MajikSignatureEnvelope::from_input(envelope_input.into())?;
         let signatures = envelope.signatures().to_vec();
         if signatures.is_empty() {
             return Ok(SessionFileVerificationResult {
@@ -1053,8 +1049,7 @@ impl MajikSignature {
             cryptographic_results = signatures
                 .iter()
                 .map(|signature| {
-                    let Some(trusted_keys) =
-                        options.expected_signer_public_keys.get(&signature.signer_id)
+                    let Some(trusted_keys) = options.expected_signer_public_keys.get(&signature.signer_id)
                     else {
                         return invalid_result(
                             signature,
@@ -1065,14 +1060,11 @@ impl MajikSignature {
                         );
                     };
 
-                    let commitment = match Self::verify_commitment(
-                        signature,
-                        trusted_keys,
-                        options.now.clone(),
-                    ) {
-                        Ok(result) => result,
-                        Err(error) => return invalid_result(signature, error.message().to_string()),
-                    };
+                    let commitment =
+                        match Self::verify_commitment(signature, trusted_keys, options.now.clone()) {
+                            Ok(result) => result,
+                            Err(error) => return invalid_result(signature, error.message().to_string()),
+                        };
                     if !commitment.base.valid {
                         return commitment.base;
                     }
@@ -1135,8 +1127,7 @@ impl MajikSignature {
             resolved_contexts.iter().map(|(_, context)| context.policy_hash.clone()).collect();
         let challenge_ids: Vec<String> =
             resolved_contexts.iter().map(|(_, context)| context.challenge_id.clone()).collect();
-        let unique_challenges =
-            challenge_ids.iter().collect::<HashSet<_>>().len() == challenge_ids.len();
+        let unique_challenges = challenge_ids.iter().collect::<HashSet<_>>().len() == challenge_ids.len();
 
         let session_scope_reason = if resolved_contexts.len() != signatures.len() {
             None
@@ -1265,20 +1256,13 @@ impl MajikSignature {
         let seal_integrity = if envelope.is_sealed() {
             envelope.verify_seal()
         } else {
-            SealVerificationResult {
-                valid: true,
-                ..Default::default()
-            }
+            SealVerificationResult { valid: true, ..Default::default() }
         };
-        let chain_valid = chain
-            .as_ref()
-            .map(|result| result.chain_valid)
-            .unwrap_or(version_chain_integrity.valid);
+        let chain_valid =
+            chain.as_ref().map(|result| result.chain_valid).unwrap_or(version_chain_integrity.valid);
         let tsa_valid = tsa_results.iter().all(|result| result.valid);
         let trusted_tsa_valid = !options.require_trusted_tsa
-            || tsa_results
-                .iter()
-                .all(|result| result.present && result.valid && result.trusted);
+            || tsa_results.iter().all(|result| result.present && result.valid && result.trusted);
 
         let valid = results.iter().all(|result| result.valid)
             && allowlist_integrity.valid
@@ -1303,10 +1287,7 @@ impl MajikSignature {
                 }
             })
             .or_else(|| {
-                tsa_results
-                    .iter()
-                    .find(|result| !result.valid)
-                    .and_then(|result| result.reason.clone())
+                tsa_results.iter().find(|result| !result.valid).and_then(|result| result.reason.clone())
             })
             .or_else(|| {
                 if !trusted_tsa_valid {
@@ -1316,13 +1297,7 @@ impl MajikSignature {
                 }
             });
 
-        Ok(SessionFileVerificationResult {
-            valid,
-            results,
-            chain,
-            tsa_results,
-            reason,
-        })
+        Ok(SessionFileVerificationResult { valid, results, chain, tsa_results, reason })
     }
 
     /// Sign a file and embed the signature. First signer may pass

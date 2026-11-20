@@ -498,8 +498,7 @@ impl MajikSignatureEmbed {
         // A session-bound first signer establishes revision 1 even before
         // any participant adds a visual stamp. Later file mutations append
         // subsequent revisions through prior_file as before.
-        let starts_session_chain =
-            options.session_context_hash.is_some() && envelope.signatures().is_empty();
+        let starts_session_chain = options.session_context_hash.is_some() && envelope.signatures().is_empty();
         let new_version = if options.prior_file.is_some() || starts_session_chain {
             let last = envelope.last_file_version();
             Some(FileVersion {

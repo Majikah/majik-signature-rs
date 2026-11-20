@@ -5,8 +5,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::anchor::types::MajikChainAnchor;
-use crate::core::session_context::MajikSessionSigningContext;
 pub use crate::core::constants::ContentType;
+use crate::core::session_context::MajikSessionSigningContext;
 
 /// ISO 8601 timestamp string (same alias as majik-key).
 pub type ISODateString = String;
