@@ -1091,8 +1091,7 @@ impl MajikSignature {
                             "Signature commits to a revision chain, but fileVersions is missing".into(),
                         );
                     }
-                    let Some(trusted_keys) =
-                        options.expected_signer_public_keys.get(&signature.signer_id)
+                    let Some(trusted_keys) = options.expected_signer_public_keys.get(&signature.signer_id)
                     else {
                         return invalid_result(
                             signature,
