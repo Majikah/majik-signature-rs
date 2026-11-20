@@ -294,7 +294,7 @@ fn session_file_api_verifies_individual_challenges_and_visual_stamp_revisions() 
         MajikSignature::expected_signer_from_key(&participant).unwrap(),
     ]);
     let issuer_signed = MajikSignature::sign_session_file(CONTENT, &issuer, &issuer_options).unwrap();
-    assert_eq!(issuer_signed.envelope.file_versions().len(), 1);
+    assert!(issuer_signed.envelope.file_versions().is_empty());
 
     // Simulate the next participant adding a visual stamp, changing the document bytes.
     let mut stamped_content = CONTENT.to_vec();
@@ -409,4 +409,167 @@ fn session_file_api_verifies_signature_scoped_tsa_with_a_pinned_identity() {
     assert!(verified.tsa_results[0].present);
     assert!(verified.tsa_results[0].valid);
     assert!(verified.tsa_results[0].trusted);
+}
+
+#[test]
+fn session_file_api_commits_an_explicit_file_version_and_returns_it_in_the_sidecar() {
+    let issuer = new_key("signroom-explicit-issuer");
+    let participant = new_key("signroom-explicit-participant");
+    let original = b"explicit revision source";
+    let first_context = context("session-explicit-revision", "challenge-explicit-issuer");
+    let mut first_options = SessionFileSignOptions::new(first_context);
+    first_options.mime_type = Some("text/plain".into());
+    first_options.content_type = Some("text/plain".into());
+
+    let first = MajikSignature::sign_session_file(original, &issuer, &first_options).unwrap();
+    assert!(first.envelope.file_versions().is_empty());
+
+    let stamped = b"explicit revision source\nvisual stamp";
+    let participant_context = context("session-explicit-revision", "challenge-explicit-participant");
+    let file_version = FileVersion {
+        version: 1,
+        timestamp: "2026-11-20T02:00:00.000Z".into(),
+        content_hash: digest_text(std::str::from_utf8(stamped).unwrap()),
+        previous_version_hash: None,
+        created_by: Some(participant.fingerprint().to_string()),
+        message: Some("Participant added a visual stamp".into()),
+    };
+    let mut participant_options = SessionFileSignOptions::new(participant_context);
+    participant_options.mime_type = Some("text/plain".into());
+    participant_options.content_type = Some("text/plain".into());
+    participant_options.existing_envelope = Some(EnvelopeInput::Envelope(first.envelope.clone()));
+    participant_options.file_version = Some(file_version.clone());
+
+    let next = MajikSignature::sign_session_file(stamped, &participant, &participant_options).unwrap();
+    let expected_chain_hash =
+        MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
+    assert_eq!(next.signature.version_chain_hash(), Some(expected_chain_hash.as_str()));
+    assert_eq!(next.envelope.file_versions(), std::slice::from_ref(&file_version));
+
+    let decoded = MajikSignatureEnvelope::from_mjksig(&next.mjksig).unwrap();
+    assert_eq!(decoded.file_versions(), std::slice::from_ref(&file_version));
+
+    let participant_keys = MajikSignature::public_keys_from_majik_key(&participant).unwrap();
+    let crypto = MajikSignature::verify(stamped, &next.signature, &participant_keys, None).unwrap();
+    assert!(crypto.valid, "{:?}", crypto.reason);
+}
+
+#[test]
+fn session_file_api_binds_no_stamp_signatures_to_the_current_revision_chain() {
+    let issuer = new_key("signroom-current-chain-issuer");
+    let participant = new_key("signroom-current-chain-participant");
+    let next_signer = new_key("signroom-current-chain-no-stamp");
+    let source = b"revision-chain source";
+    let first = MajikSignature::sign_session_file(
+        source,
+        &issuer,
+        &SessionFileSignOptions::new(context("session-current-chain", "challenge-current-chain-issuer")),
+    )
+    .unwrap();
+    assert!(first.envelope.file_versions().is_empty());
+
+    let stamped = b"revision-chain source\nstamped";
+    let file_version = FileVersion {
+        version: 1,
+        timestamp: "2026-11-20T02:10:00.000Z".into(),
+        content_hash: digest_text(std::str::from_utf8(stamped).unwrap()),
+        previous_version_hash: None,
+        created_by: Some(participant.fingerprint().to_string()),
+        message: Some("Participant added a visual stamp".into()),
+    };
+    let mut stamped_options =
+        SessionFileSignOptions::new(context("session-current-chain", "challenge-current-chain-visual"));
+    stamped_options.content_type = Some("text/plain".into());
+    stamped_options.mime_type = Some("text/plain".into());
+    stamped_options.existing_envelope = Some(EnvelopeInput::Envelope(first.envelope.clone()));
+    stamped_options.file_version = Some(file_version.clone());
+
+    let stamped_result = MajikSignature::sign_session_file(stamped, &participant, &stamped_options).unwrap();
+    let expected_chain_hash =
+        MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
+
+    let mut no_stamp_options =
+        SessionFileSignOptions::new(context("session-current-chain", "challenge-current-chain-no-stamp"));
+    no_stamp_options.content_type = Some("text/plain".into());
+    no_stamp_options.mime_type = Some("text/plain".into());
+    no_stamp_options.existing_envelope = Some(EnvelopeInput::Envelope(stamped_result.envelope.clone()));
+
+    let no_stamp =
+        MajikSignature::sign_session_file(&stamped_result.blob, &next_signer, &no_stamp_options).unwrap();
+
+    assert_eq!(no_stamp.signature.version_chain_hash(), Some(expected_chain_hash.as_str()));
+    assert_eq!(no_stamp.envelope.file_versions(), std::slice::from_ref(&file_version));
+    assert_eq!(no_stamp.envelope.signatures().len(), 3);
+
+    let next_signer_keys = MajikSignature::public_keys_from_majik_key(&next_signer).unwrap();
+    let crypto =
+        MajikSignature::verify(&no_stamp.blob, &no_stamp.signature, &next_signer_keys, None).unwrap();
+    assert!(crypto.valid, "{:?}", crypto.reason);
+}
+
+#[test]
+fn session_file_api_rejects_invalid_or_conflicting_explicit_file_versions() {
+    let issuer = new_key("signroom-invalid-version-issuer");
+    let participant = new_key("signroom-invalid-version-participant");
+    let first = MajikSignature::sign_session_file(
+        CONTENT,
+        &issuer,
+        &SessionFileSignOptions::new(context("session-invalid-version", "challenge-invalid-version-issuer")),
+    )
+    .unwrap();
+
+    let stamped = b"explicit version validation";
+    let valid_version = FileVersion {
+        version: 1,
+        timestamp: "2026-11-20T02:20:00.000Z".into(),
+        content_hash: digest_text(std::str::from_utf8(stamped).unwrap()),
+        previous_version_hash: None,
+        created_by: Some(participant.fingerprint().to_string()),
+        message: None,
+    };
+    let mut base_options = SessionFileSignOptions::new(context(
+        "session-invalid-version",
+        "challenge-invalid-version-participant",
+    ));
+    base_options.content_type = Some("text/plain".into());
+    base_options.mime_type = Some("text/plain".into());
+    base_options.existing_envelope = Some(EnvelopeInput::Envelope(first.envelope.clone()));
+
+    let mut wrong_version = base_options.clone();
+    wrong_version.file_version = Some(FileVersion { version: 2, ..valid_version.clone() });
+    assert!(MajikSignature::sign_session_file(stamped, &participant, &wrong_version).is_err());
+
+    let mut wrong_creator = base_options.clone();
+    wrong_creator.file_version =
+        Some(FileVersion { created_by: Some(issuer.fingerprint().to_string()), ..valid_version.clone() });
+    assert!(MajikSignature::sign_session_file(stamped, &participant, &wrong_creator).is_err());
+
+    let mut noncanonical_timestamp = base_options.clone();
+    noncanonical_timestamp.file_version =
+        Some(FileVersion { timestamp: "2026-11-20T02:20:00Z".into(), ..valid_version.clone() });
+    assert!(MajikSignature::sign_session_file(stamped, &participant, &noncanonical_timestamp).is_err());
+
+    let mut broken_link = base_options.clone();
+    broken_link.file_version = Some(FileVersion {
+        previous_version_hash: Some(digest_text("wrong previous entry")),
+        ..valid_version.clone()
+    });
+    assert!(MajikSignature::sign_session_file(stamped, &participant, &broken_link).is_err());
+
+    let mut malformed_digest = base_options.clone();
+    malformed_digest.file_version =
+        Some(FileVersion { content_hash: "not-a-canonical-sha256".into(), ..valid_version.clone() });
+    assert!(MajikSignature::sign_session_file(stamped, &participant, &malformed_digest).is_err());
+
+    let mut mismatched_digest = base_options.clone();
+    mismatched_digest.file_version =
+        Some(FileVersion { content_hash: digest_text("different document bytes"), ..valid_version.clone() });
+    let mismatch = MajikSignature::sign_session_file(stamped, &participant, &mismatched_digest).unwrap_err();
+    assert!(mismatch.message().contains("contentHash does not match"));
+
+    let mut conflicting = base_options;
+    conflicting.file_version = Some(valid_version);
+    conflicting.prior_file = Some(CONTENT.to_vec());
+    let conflict = MajikSignature::sign_session_file(stamped, &participant, &conflicting).unwrap_err();
+    assert!(conflict.message().contains("fileVersion or priorFile"));
 }

@@ -955,27 +955,104 @@ impl MajikSignature {
     ) -> R<SessionFileSignResult> {
         let session_context_hash =
             crate::core::session_context::build_session_context_hash(&options.session_context)?;
-        let detached = Self::sign_file_detached(
+        let session_envelope = match options.existing_envelope.clone() {
+            Some(input) => crate::core::envelope::MajikSignatureEnvelope::from_input(input)?,
+            None => crate::core::envelope::MajikSignatureEnvelope::empty(),
+        };
+
+        if options.file_version.is_some() && options.prior_file.is_some() {
+            return Err(MajikSignatureError::new(
+                "Pass fileVersion or priorFile to signSessionFile(), not both. fileVersion is the explicit SignRoom revision entry.",
+            ));
+        }
+
+        let mut version_chain_hash = None;
+        if let Some(file_version) = options.file_version.as_ref() {
+            let expected_version = match session_envelope.last_file_version() {
+                Some(last) => last.version.checked_add(1).ok_or_else(|| {
+                    MajikSignatureError::validation(
+                        "The existing FileVersion chain has reached the maximum revision number",
+                        Some("version"),
+                    )
+                })?,
+                None => 1,
+            };
+            let expected_previous_version_hash = session_envelope
+                .last_file_version()
+                .map(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_entry);
+            let timestamp_is_canonical = file_version
+                .timestamp
+                .parse::<Timestamp>()
+                .ok()
+                .map(to_iso_string)
+                .is_some_and(|canonical| canonical == file_version.timestamp);
+            let content_hash_is_canonical = base64_to_bytes(&file_version.content_hash)
+                .is_ok_and(|bytes| bytes.len() == 32 && bytes_to_base64(&bytes) == file_version.content_hash);
+
+            if file_version.version != expected_version
+                || file_version.created_by.as_deref() != Some(key.fingerprint())
+                || file_version.previous_version_hash != expected_previous_version_hash
+                || !timestamp_is_canonical
+                || !content_hash_is_canonical
+            {
+                return Err(MajikSignatureError::new(
+                    "The supplied SignRoom FileVersion must be the next valid revision, linked to the existing envelope and created by the signing key.",
+                ));
+            }
+
+            // Validate the supplied digest against the exact bytes that the detached
+            // signing handler will cover, before performing any signing operation.
+            let stripped = Self::strip_from(file, options.mime_type.as_deref())?;
+            if bytes_to_base64(&hash_content(&stripped)) != file_version.content_hash {
+                return Err(MajikSignatureError::new(
+                    "The supplied SignRoom FileVersion contentHash does not match the document bytes being signed.",
+                ));
+            }
+
+            let mut next_chain = session_envelope.file_versions().to_vec();
+            next_chain.push(file_version.clone());
+            version_chain_hash =
+                Some(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(&next_chain));
+        } else if !session_envelope.file_versions().is_empty() {
+            // A participant who does not modify the document still commits to
+            // the exact revision chain already stored in the detached sidecar.
+            version_chain_hash =
+                Some(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(
+                    session_envelope.file_versions(),
+                ));
+        }
+
+        let existing_envelope = Some(EnvelopeInput::Envelope(session_envelope.clone()));
+        let detached = MajikSignatureEmbed::sign_detached_with_version_chain_hash(
             file,
             key,
             Some(&SignDetachedOptions {
                 embed: EmbedOptions { mime_type: options.mime_type.clone(), ..Default::default() },
                 content_type: options.content_type.clone(),
-                timestamp: options.timestamp.clone(),
+                timestamp: options
+                    .file_version
+                    .as_ref()
+                    .map(|version| version.timestamp.clone())
+                    .or_else(|| options.timestamp.clone()),
                 valid_until: options.valid_until.clone(),
                 expected_signers: options.expected_signers.clone(),
-                existing_envelope: options.existing_envelope.clone(),
+                existing_envelope,
                 tsa: options.tsa.clone(),
                 prior_file: options.prior_file.clone(),
                 message: options.message.clone(),
                 session_context_hash: Some(session_context_hash),
             }),
+            version_chain_hash,
         )?;
 
-        let mjksig = detached.envelope.to_mjksig()?;
+        let envelope = match options.file_version.as_ref() {
+            Some(file_version) => detached.envelope.with_file_version(file_version.clone())?,
+            None => detached.envelope,
+        };
+        let mjksig = envelope.to_mjksig()?;
         Ok(SessionFileSignResult {
             blob: detached.blob,
-            envelope: detached.envelope,
+            envelope,
             signature: detached.signature,
             handler: detached.handler,
             mime_type: detached.mime_type,

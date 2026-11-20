@@ -477,6 +477,17 @@ impl MajikSignatureEmbed {
         key: &MajikKey,
         options: Option<&SignDetachedOptions>,
     ) -> R<SignDetachedResult> {
+        Self::sign_detached_with_version_chain_hash(file, key, options, None)
+    }
+
+    /// Session-only variant that can bind a signature to an already-existing
+    /// or explicitly supplied revision chain without changing public detached APIs.
+    pub(crate) fn sign_detached_with_version_chain_hash(
+        file: &[u8],
+        key: &MajikKey,
+        options: Option<&SignDetachedOptions>,
+        version_chain_hash_override: Option<String>,
+    ) -> R<SignDetachedResult> {
         let default_opts = SignDetachedOptions::default();
         let options = options.unwrap_or(&default_opts);
         let p = Self::prepare(file, Some(&options.embed));
@@ -495,11 +506,7 @@ impl MajikSignatureEmbed {
 
         let original = p.handler.strip(p.bytes)?;
         let allowlist_hash = envelope.resolve_allowlist_hash_for(key, options.expected_signers.as_deref());
-        // A session-bound first signer establishes revision 1 even before
-        // any participant adds a visual stamp. Later file mutations append
-        // subsequent revisions through prior_file as before.
-        let starts_session_chain = options.session_context_hash.is_some() && envelope.signatures().is_empty();
-        let new_version = if options.prior_file.is_some() || starts_session_chain {
+        let new_version = if options.prior_file.is_some() {
             let last = envelope.last_file_version();
             Some(FileVersion {
                 version: last.map(|entry| entry.version + 1).unwrap_or(1),
@@ -512,11 +519,16 @@ impl MajikSignatureEmbed {
         } else {
             None
         };
-        let version_chain_hash = new_version.as_ref().map(|entry| {
-            let mut chain = envelope.file_versions().to_vec();
-            chain.push(entry.clone());
-            MajikSignatureEnvelope::hash_file_version_chain(&chain)
-        });
+        // A generated revision always takes precedence (for priorFile flows).
+        // Session callers otherwise supply the exact current/explicit chain hash.
+        let version_chain_hash = new_version
+            .as_ref()
+            .map(|entry| {
+                let mut chain = envelope.file_versions().to_vec();
+                chain.push(entry.clone());
+                MajikSignatureEnvelope::hash_file_version_chain(&chain)
+            })
+            .or(version_chain_hash_override);
 
         let mut signature = MajikSignature::sign(
             &original,

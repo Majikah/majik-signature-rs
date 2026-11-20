@@ -76,7 +76,7 @@ For one-document SignRoom workflows, use MajikSignature::sign_session_file and
 MajikSignature::verify_session_file. These methods wrap the existing detached
 signing and verification pipeline; the normal general-purpose APIs remain unchanged.
 
-\`\`\`rust
+```rust
 use majik_signature::*;
 
 let context = MajikSessionSigningContext {
@@ -106,7 +106,51 @@ let verification = MajikSignature::verify_session_file(
     &verify_options,
 )?;
 assert!(verification.valid, "{:?}", verification.reason);
-\`\`\`
+```
+
+For subsequent participants, pass the existing envelope. When a participant
+changes the document (for example, by adding a visual stamp), supply the exact next
+FileVersion through SessionFileSignOptions.file_version. The Rust API validates
+its sequence number, previous-entry hash, signer fingerprint, canonical UTC timestamp,
+and SHA-256 digest against the stripped document bytes. This option is mutually
+exclusive with prior_file; the latter remains available for automatic prior-file
+revision handling.
+
+A participant who does not change the document should omit file_version. When the
+envelope already has revisions, their signature is automatically bound to the hash of
+the current complete revision chain without appending another entry.
+
+```rust
+let last = previous.envelope.last_file_version();
+let file_version = FileVersion {
+    version: last.map(|entry| entry.version + 1).unwrap_or(1),
+    timestamp: "2026-11-20T02:00:00.000Z".into(),
+    content_hash: bytes_to_base64(&hash_content(&stamped_document_bytes)),
+    previous_version_hash: last.map(MajikSignatureEnvelope::hash_file_version_entry),
+    created_by: Some(participant_key.fingerprint().to_string()),
+    message: Some("Participant added a visual stamp".into()),
+};
+
+let mut options = SessionFileSignOptions::new(participant_context);
+options.existing_envelope = Some(EnvelopeInput::Envelope(previous.envelope.clone()));
+options.file_version = Some(file_version);
+let stamped_result =
+    MajikSignature::sign_session_file(&stamped_document_bytes, &participant_key, &options)?;
+
+// A later participant who does not modify the document inherits the current chain
+// commitment automatically and leaves the FileVersion list unchanged.
+let mut no_stamp_options = SessionFileSignOptions::new(next_context);
+no_stamp_options.existing_envelope =
+    Some(EnvelopeInput::Envelope(stamped_result.envelope.clone()));
+let next = MajikSignature::sign_session_file(
+    &stamped_result.blob,
+    &next_signer_key,
+    &no_stamp_options,
+)?;
+```
+
+prior_file remains an alternative when the library should derive the next revision
+from a prior document. Do not supply both file_version and prior_file.
 
 Each participant must supply their own challenge context. Verification fails closed
 when a signer context or trusted signing key is missing, when participants disagree
