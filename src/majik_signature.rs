@@ -1060,11 +1060,10 @@ impl MajikSignature {
                         );
                     };
 
-                    let commitment =
-                        match Self::verify_commitment(signature, trusted_keys, options.now) {
-                            Ok(result) => result,
-                            Err(error) => return invalid_result(signature, error.message().to_string()),
-                        };
+                    let commitment = match Self::verify_commitment(signature, trusted_keys, options.now) {
+                        Ok(result) => result,
+                        Err(error) => return invalid_result(signature, error.message().to_string()),
+                    };
                     if !commitment.base.valid {
                         return commitment.base;
                     }
