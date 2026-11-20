@@ -441,12 +441,12 @@ fn session_file_api_commits_an_explicit_file_version_and_returns_it_in_the_sidec
     participant_options.file_version = Some(file_version.clone());
 
     let next = MajikSignature::sign_session_file(stamped, &participant, &participant_options).unwrap();
-    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(&[file_version.clone()]);
+    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
     assert_eq!(next.signature.version_chain_hash(), Some(expected_chain_hash.as_str()));
-    assert_eq!(next.envelope.file_versions(), &[file_version.clone()]);
+    assert_eq!(next.envelope.file_versions(), std::slice::from_ref(&file_version));
 
     let decoded = MajikSignatureEnvelope::from_mjksig(&next.mjksig).unwrap();
-    assert_eq!(decoded.file_versions(), &[file_version]);
+    assert_eq!(decoded.file_versions(), std::slice::from_ref(&file_version));
 
     let participant_keys = MajikSignature::public_keys_from_majik_key(&participant).unwrap();
     let crypto = MajikSignature::verify(stamped, &next.signature, &participant_keys, None).unwrap();
@@ -484,7 +484,7 @@ fn session_file_api_binds_no_stamp_signatures_to_the_current_revision_chain() {
     stamped_options.file_version = Some(file_version.clone());
 
     let stamped_result = MajikSignature::sign_session_file(stamped, &participant, &stamped_options).unwrap();
-    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(&[file_version.clone()]);
+    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
 
     let mut no_stamp_options =
         SessionFileSignOptions::new(context("session-current-chain", "challenge-current-chain-no-stamp"));
@@ -496,7 +496,7 @@ fn session_file_api_binds_no_stamp_signatures_to_the_current_revision_chain() {
         MajikSignature::sign_session_file(&stamped_result.blob, &next_signer, &no_stamp_options).unwrap();
 
     assert_eq!(no_stamp.signature.version_chain_hash(), Some(expected_chain_hash.as_str()));
-    assert_eq!(no_stamp.envelope.file_versions(), &[file_version]);
+    assert_eq!(no_stamp.envelope.file_versions(), std::slice::from_ref(&file_version));
     assert_eq!(no_stamp.envelope.signatures().len(), 3);
 
     let next_signer_keys = MajikSignature::public_keys_from_majik_key(&next_signer).unwrap();
