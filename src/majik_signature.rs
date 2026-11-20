@@ -977,10 +977,9 @@ impl MajikSignature {
                 })?,
                 None => 1,
             };
-            let expected_previous_version_hash =
-                session_envelope.last_file_version().map(|last| {
-                    crate::core::envelope::MajikSignatureEnvelope::hash_file_version_entry(last)
-                });
+            let expected_previous_version_hash = session_envelope
+                .last_file_version()
+                .map(|last| crate::core::envelope::MajikSignatureEnvelope::hash_file_version_entry(last));
             let timestamp_is_canonical = file_version
                 .timestamp
                 .parse::<Timestamp>()
@@ -1012,17 +1011,15 @@ impl MajikSignature {
 
             let mut next_chain = session_envelope.file_versions().to_vec();
             next_chain.push(file_version.clone());
-            version_chain_hash = Some(
-                crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(&next_chain),
-            );
+            version_chain_hash =
+                Some(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(&next_chain));
         } else if !session_envelope.file_versions().is_empty() {
             // A participant who does not modify the document still commits to
             // the exact revision chain already stored in the detached sidecar.
-            version_chain_hash = Some(
-                crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(
+            version_chain_hash =
+                Some(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_chain(
                     session_envelope.file_versions(),
-                ),
-            );
+                ));
         }
 
         let existing_envelope = Some(EnvelopeInput::Envelope(session_envelope.clone()));
