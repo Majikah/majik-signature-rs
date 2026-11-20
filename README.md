@@ -69,6 +69,53 @@ assert!(result.base.valid);
 
 Digest-only verification requires the expected session-context hash for session-bound signatures. The context commitment does not itself authorize a signer, issue or consume a one-time challenge, or establish TSA trust; the session service remains responsible for those checks.
 
+
+## Session-aware detached file APIs
+
+For one-document SignRoom workflows, use MajikSignature::sign_session_file and
+MajikSignature::verify_session_file. These methods wrap the existing detached
+signing and verification pipeline; the normal general-purpose APIs remain unchanged.
+
+\`\`\`rust
+use majik_signature::*;
+
+let context = MajikSessionSigningContext {
+    session_id: session_id.to_string(),
+    challenge_id: challenge_id.to_string(),
+    policy_hash: bytes_to_base64(&hash_content(policy_snapshot.as_bytes())),
+};
+
+let mut sign_options = SessionFileSignOptions::new(context.clone());
+sign_options.mime_type = Some("application/pdf".into());
+sign_options.content_type = Some("application/pdf".into());
+
+let signed = MajikSignature::sign_session_file(&document_bytes, &signer_key, &sign_options)?;
+std::fs::write("contract.mjksig", &signed.mjksig)?;
+
+// Supply authoritative context and trusted public keys for every participant,
+// keyed by the corresponding signer fingerprint.
+let trusted_keys = MajikSignature::public_keys_from_majik_key(&signer_key)?;
+let signer_id = trusted_keys.signer_id.clone();
+let mut verify_options = SessionFileVerifyOptions::default();
+verify_options.expected_session_contexts.insert(signer_id.clone(), context);
+verify_options.expected_signer_public_keys.insert(signer_id, trusted_keys);
+
+let verification = MajikSignature::verify_session_file(
+    &signed.blob,
+    signed.mjksig.as_slice(),
+    &verify_options,
+)?;
+assert!(verification.valid, "{:?}", verification.reason);
+\`\`\`
+
+Each participant must supply their own challenge context. Verification fails closed
+when a signer context or trusted signing key is missing, when participants disagree
+on the session or immutable policy, or when challenges are reused. Revision chains,
+allowlist integrity, envelope seals, and TSA attestations are included in the outcome.
+A TSA token is only reported as trusted when verification is pinned to an independently
+trusted TSA public key. Challenge authorization, expiry, issuance, and single-use
+consumption remain application-server responsibilities.
+
 ## Signature-scoped Trusted Timestamps
 
 Legacy TSA requests remain content-scoped. To attest to the complete unsigned signer record (including its hybrid signatures and session commitment), request the signature scope and pin the TSA to an independently trusted key:

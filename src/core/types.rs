@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::anchor::types::MajikChainAnchor;
+use crate::core::session_context::MajikSessionSigningContext;
 pub use crate::core::constants::ContentType;
 
 /// ISO 8601 timestamp string (same alias as majik-key).
@@ -456,6 +457,84 @@ pub struct FileChainVerification {
     pub latest: VerificationResult,
     pub history: Vec<RevisionCommitmentResult>,
     pub chain_valid: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionFileSignOptions {
+    pub session_context: MajikSessionSigningContext,
+    pub content_type: Option<String>,
+    pub timestamp: Option<ISODateString>,
+    pub mime_type: Option<String>,
+    pub expected_signers: Option<Vec<ExpectedSigner>>,
+    pub valid_until: Option<ISODateString>,
+    pub existing_envelope: Option<crate::core::envelope::EnvelopeInput>,
+    pub tsa: Option<MajikTimestamp>,
+    /// Exact prior document bytes before this participant's visual stamp.
+    pub prior_file: Option<Vec<u8>>,
+    pub message: Option<String>,
+}
+
+impl SessionFileSignOptions {
+    /// Create session signing options with every optional setting unset.
+    pub fn new(session_context: MajikSessionSigningContext) -> Self {
+        Self {
+            session_context,
+            content_type: None,
+            timestamp: None,
+            mime_type: None,
+            expected_signers: None,
+            valid_until: None,
+            existing_envelope: None,
+            tsa: None,
+            prior_file: None,
+            message: None,
+        }
+    }
+}
+
+/// Result of session-aware detached signing, including binary MJKSIG sidecar bytes.
+#[derive(Debug, Clone)]
+pub struct SessionFileSignResult {
+    pub blob: Vec<u8>,
+    pub envelope: crate::core::envelope::MajikSignatureEnvelope,
+    pub signature: crate::majik_signature::MajikSignature,
+    pub handler: String,
+    pub mime_type: String,
+    pub mjksig: Vec<u8>,
+}
+
+/// Strict verification options for a detached SignRoom document.
+#[derive(Debug, Clone, Default)]
+pub struct SessionFileVerifyOptions {
+    /// Authoritative session/challenge/policy context, keyed by signer fingerprint.
+    pub expected_session_contexts: std::collections::HashMap<String, MajikSessionSigningContext>,
+    /// Trusted Ed25519 + ML-DSA-87 keys, keyed by signer fingerprint.
+    pub expected_signer_public_keys: std::collections::HashMap<String, MajikSignerPublicKeys>,
+    pub mime_type: Option<String>,
+    pub now: Option<jiff::Timestamp>,
+    /// Optional independently trusted TSA key. Without it, TSA self-consistency is checked only.
+    pub trusted_tsa_public_keys: Option<MajikSignerPublicKeys>,
+    pub require_tsa: bool,
+    pub require_trusted_tsa: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionFileTsaVerificationResult {
+    pub signer_id: MajikKeyFingerprint,
+    pub present: bool,
+    pub valid: bool,
+    /// True only when verification was pinned to trusted_tsa_public_keys.
+    pub trusted: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionFileVerificationResult {
+    pub valid: bool,
+    pub results: Vec<VerificationResult>,
+    pub chain: Option<FileChainVerification>,
+    pub tsa_results: Vec<SessionFileTsaVerificationResult>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

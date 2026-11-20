@@ -244,3 +244,196 @@ fn rejects_invalid_session_hash_and_unsupported_tsa_scope() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn session_file_api_round_trips_a_detached_mjksig_sidecar() {
+    let key = new_key("signroom-file-single");
+    let session_context = context("session-file-single", "challenge-file-single");
+    let mut sign_options = SessionFileSignOptions::new(session_context.clone());
+    sign_options.mime_type = Some("text/plain".into());
+    sign_options.content_type = Some("text/plain".into());
+
+    let signed = MajikSignature::sign_session_file(CONTENT, &key, &sign_options).unwrap();
+    assert!(MajikSignatureEnvelope::is_mjksig(&signed.mjksig));
+    assert_eq!(signed.blob.as_slice(), CONTENT);
+    let restored = MajikSignatureEnvelope::from_mjksig(&signed.mjksig).unwrap();
+    assert_eq!(restored.signatures().len(), 1);
+
+    let keys = MajikSignature::public_keys_from_majik_key(&key).unwrap();
+    let mut verify_options = SessionFileVerifyOptions::default();
+    verify_options.expected_session_contexts.insert(key.fingerprint().to_string(), session_context);
+    verify_options.expected_signer_public_keys.insert(key.fingerprint().to_string(), keys);
+
+    let verified = MajikSignature::verify_session_file(
+        &signed.blob,
+        signed.mjksig.as_slice(),
+        &verify_options,
+    )
+    .unwrap();
+    assert!(verified.valid, "{:?}", verified.reason);
+    assert_eq!(verified.results.len(), 1);
+    assert!(verified.results[0].valid);
+    assert_eq!(verified.tsa_results.len(), 1);
+    assert!(!verified.tsa_results[0].present);
+
+    verify_options.require_tsa = true;
+    let without_required_tsa = MajikSignature::verify_session_file(
+        &signed.blob,
+        signed.mjksig.as_slice(),
+        &verify_options,
+    )
+    .unwrap();
+    assert!(!without_required_tsa.valid);
+    assert!(!without_required_tsa.tsa_results[0].valid);
+}
+
+#[test]
+fn session_file_api_verifies_individual_challenges_and_visual_stamp_revisions() {
+    let issuer = new_key("signroom-file-issuer");
+    let participant = new_key("signroom-file-participant");
+    let issuer_context = context("session-file-multi", "challenge-file-issuer");
+    let participant_context = context("session-file-multi", "challenge-file-participant");
+
+    let mut issuer_options = SessionFileSignOptions::new(issuer_context.clone());
+    issuer_options.mime_type = Some("text/plain".into());
+    issuer_options.content_type = Some("text/plain".into());
+    issuer_options.expected_signers = Some(vec![
+        MajikSignature::expected_signer_from_key(&issuer).unwrap(),
+        MajikSignature::expected_signer_from_key(&participant).unwrap(),
+    ]);
+    let issuer_signed = MajikSignature::sign_session_file(CONTENT, &issuer, &issuer_options).unwrap();
+    assert_eq!(issuer_signed.envelope.file_versions().len(), 1);
+
+    // Simulate the next participant adding a visual stamp, changing the document bytes.
+    let mut stamped_content = CONTENT.to_vec();
+    stamped_content.extend_from_slice(b"\nvisual stamp");
+    let mut participant_options = SessionFileSignOptions::new(participant_context.clone());
+    participant_options.mime_type = Some("text/plain".into());
+    participant_options.content_type = Some("text/plain".into());
+    participant_options.existing_envelope = Some(EnvelopeInput::Envelope(issuer_signed.envelope.clone()));
+    participant_options.prior_file = Some(issuer_signed.blob.clone());
+    participant_options.message = Some("Participant added a visual stamp".into());
+    let participant_signed =
+        MajikSignature::sign_session_file(&stamped_content, &participant, &participant_options).unwrap();
+
+    assert_eq!(participant_signed.envelope.file_versions().len(), 2);
+    assert!(participant_signed.signature.version_chain_hash().is_some());
+
+    let issuer_keys = MajikSignature::public_keys_from_majik_key(&issuer).unwrap();
+    let participant_keys = MajikSignature::public_keys_from_majik_key(&participant).unwrap();
+    let mut verify_options = SessionFileVerifyOptions::default();
+    verify_options
+        .expected_session_contexts
+        .insert(issuer.fingerprint().to_string(), issuer_context.clone());
+    verify_options
+        .expected_session_contexts
+        .insert(participant.fingerprint().to_string(), participant_context.clone());
+    verify_options
+        .expected_signer_public_keys
+        .insert(issuer.fingerprint().to_string(), issuer_keys);
+    verify_options
+        .expected_signer_public_keys
+        .insert(participant.fingerprint().to_string(), participant_keys);
+
+    let verified = MajikSignature::verify_session_file(
+        &participant_signed.blob,
+        participant_signed.mjksig.as_slice(),
+        &verify_options,
+    )
+    .unwrap();
+    assert!(verified.valid, "{:?}", verified.reason);
+    assert_eq!(verified.results.len(), 2);
+    assert!(verified.results.iter().all(|result| result.valid));
+    assert!(verified.chain.as_ref().is_some_and(|chain| chain.chain_valid));
+
+    // Reusing the issuer's one-time challenge for the participant must fail closed.
+    verify_options.expected_session_contexts.insert(
+        participant.fingerprint().to_string(),
+        MajikSessionSigningContext {
+            challenge_id: issuer_context.challenge_id.clone(),
+            ..participant_context.clone()
+        },
+    );
+    let reused_challenge = MajikSignature::verify_session_file(
+        &participant_signed.blob,
+        participant_signed.mjksig.as_slice(),
+        &verify_options,
+    )
+    .unwrap();
+    assert!(!reused_challenge.valid);
+    assert!(reused_challenge.reason.unwrap().contains("distinct one-time challenge"));
+
+    // Missing authoritative context is reported against that participant.
+    verify_options.expected_session_contexts.remove(&participant.fingerprint().to_string());
+    let missing_context = MajikSignature::verify_session_file(
+        &participant_signed.blob,
+        participant_signed.mjksig.as_slice(),
+        &verify_options,
+    )
+    .unwrap();
+    assert!(!missing_context.valid);
+    assert!(missing_context.results.iter().any(|result| {
+        result.signer_id.as_deref() == Some(participant.fingerprint())
+            && result.reason.as_deref().unwrap_or_default().contains("No authoritative session context")
+    }));
+}
+
+
+#[test]
+fn session_file_api_verifies_signature_scoped_tsa_with_a_pinned_identity() {
+    let signer = new_key("signroom-file-tsa-signer");
+    let tsa_key = new_key("signroom-file-tsa-authority");
+    let session_context = context("session-file-tsa", "challenge-file-tsa");
+
+    let mut sign_options = SessionFileSignOptions::new(session_context.clone());
+    sign_options.mime_type = Some("text/plain".into());
+    sign_options.content_type = Some("text/plain".into());
+    let mut signed = MajikSignature::sign_session_file(CONTENT, &signer, &sign_options).unwrap();
+
+    let tsa_keys = MajikSignature::public_keys_from_majik_key(&tsa_key).unwrap();
+    let request = signed
+        .signature
+        .build_tsa_request_payload_with_scope(Some(TsaDigestScope::Signature));
+    let timestamp = MajikSignature::sign_tsa(
+        &request,
+        &tsa_key,
+        MajikTsaIdentity {
+            id: "tsa.majikah.solutions".into(),
+            signer_fingerprint: tsa_keys.signer_id.clone(),
+        },
+        None,
+    )
+    .unwrap();
+    signed
+        .signature
+        .add_tsa_with_trusted_keys(timestamp, Some(&tsa_keys))
+        .unwrap();
+
+    let timestamped_envelope = signed
+        .envelope
+        .with_signature(signed.signature.to_json())
+        .unwrap();
+    let sidecar = timestamped_envelope.to_mjksig().unwrap();
+
+    let signer_keys = MajikSignature::public_keys_from_majik_key(&signer).unwrap();
+    let mut verify_options = SessionFileVerifyOptions::default();
+    verify_options
+        .expected_session_contexts
+        .insert(signer.fingerprint().to_string(), session_context);
+    verify_options
+        .expected_signer_public_keys
+        .insert(signer.fingerprint().to_string(), signer_keys);
+    verify_options.trusted_tsa_public_keys = Some(tsa_keys);
+    verify_options.require_tsa = true;
+    verify_options.require_trusted_tsa = true;
+
+    let verified =
+        MajikSignature::verify_session_file(&signed.blob, sidecar.as_slice(), &verify_options)
+            .unwrap();
+    assert!(verified.valid, "{:?}", verified.reason);
+    assert_eq!(verified.tsa_results.len(), 1);
+    assert!(verified.tsa_results[0].present);
+    assert!(verified.tsa_results[0].valid);
+    assert!(verified.tsa_results[0].trusted);
+}
+
