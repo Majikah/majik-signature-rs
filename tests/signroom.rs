@@ -441,7 +441,8 @@ fn session_file_api_commits_an_explicit_file_version_and_returns_it_in_the_sidec
     participant_options.file_version = Some(file_version.clone());
 
     let next = MajikSignature::sign_session_file(stamped, &participant, &participant_options).unwrap();
-    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
+    let expected_chain_hash =
+        MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
     assert_eq!(next.signature.version_chain_hash(), Some(expected_chain_hash.as_str()));
     assert_eq!(next.envelope.file_versions(), std::slice::from_ref(&file_version));
 
@@ -484,7 +485,8 @@ fn session_file_api_binds_no_stamp_signatures_to_the_current_revision_chain() {
     stamped_options.file_version = Some(file_version.clone());
 
     let stamped_result = MajikSignature::sign_session_file(stamped, &participant, &stamped_options).unwrap();
-    let expected_chain_hash = MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
+    let expected_chain_hash =
+        MajikSignatureEnvelope::hash_file_version_chain(std::slice::from_ref(&file_version));
 
     let mut no_stamp_options =
         SessionFileSignOptions::new(context("session-current-chain", "challenge-current-chain-no-stamp"));
