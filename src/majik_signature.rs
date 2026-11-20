@@ -1034,7 +1034,7 @@ impl MajikSignature {
                 file,
                 envelope.clone(),
                 options.mime_type.as_deref(),
-                options.now.clone(),
+                options.now,
             )?;
             let mut by_signer: HashMap<String, VerificationResult> = HashMap::new();
             for result in &verified_chain.history {
@@ -1061,7 +1061,7 @@ impl MajikSignature {
                     };
 
                     let commitment =
-                        match Self::verify_commitment(signature, trusted_keys, options.now.clone()) {
+                        match Self::verify_commitment(signature, trusted_keys, options.now) {
                             Ok(result) => result,
                             Err(error) => return invalid_result(signature, error.message().to_string()),
                         };
@@ -1101,7 +1101,7 @@ impl MajikSignature {
                             ),
                         );
                     };
-                    match Self::verify(&stripped, signature, trusted_keys, options.now.clone()) {
+                    match Self::verify(&stripped, signature, trusted_keys, options.now) {
                         Ok(result) => result,
                         Err(error) => invalid_result(signature, error.message().to_string()),
                     }
@@ -1142,7 +1142,7 @@ impl MajikSignature {
 
         let results: Vec<VerificationResult> = signatures
             .iter()
-            .zip(cryptographic_results.into_iter())
+            .zip(cryptographic_results)
             .map(|(signature, mut base)| {
                 if envelope.has_allowlist() {
                     let is_issuer =
