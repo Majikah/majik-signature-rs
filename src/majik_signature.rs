@@ -943,6 +943,361 @@ use crate::core::mjksmap::MajikSignatureMap;
 use crate::core::order::{normalize_expected_order, OrderEntry, SignatureOrderResult};
 
 impl MajikSignature {
+    /// Sign one detached document for a SignRoom participant.
+    ///
+    /// This additive API derives the session-context commitment internally and
+    /// returns both the clean document bytes and the current binary MJKSIG sidecar.
+    /// Challenge issuance/consumption and participant authorization remain server duties.
+    pub fn sign_session_file(
+        file: &[u8],
+        key: &MajikKey,
+        options: &SessionFileSignOptions,
+    ) -> R<SessionFileSignResult> {
+        let session_context_hash =
+            crate::core::session_context::build_session_context_hash(&options.session_context)?;
+        let detached = Self::sign_file_detached(
+            file,
+            key,
+            Some(&SignDetachedOptions {
+                embed: EmbedOptions { mime_type: options.mime_type.clone(), ..Default::default() },
+                content_type: options.content_type.clone(),
+                timestamp: options.timestamp.clone(),
+                valid_until: options.valid_until.clone(),
+                expected_signers: options.expected_signers.clone(),
+                existing_envelope: options.existing_envelope.clone(),
+                tsa: options.tsa.clone(),
+                prior_file: options.prior_file.clone(),
+                message: options.message.clone(),
+                session_context_hash: Some(session_context_hash),
+            }),
+        )?;
+
+        let mjksig = detached.envelope.to_mjksig()?;
+        Ok(SessionFileSignResult {
+            blob: detached.blob,
+            envelope: detached.envelope,
+            signature: detached.signature,
+            handler: detached.handler,
+            mime_type: detached.mime_type,
+            mjksig,
+        })
+    }
+
+    /// Verify a detached document and every participant against authoritative
+    /// SignRoom contexts and trusted public keys.
+    ///
+    /// Contexts and public keys are keyed by signer fingerprint. Every signer
+    /// must have a context; contexts must share one session and policy while
+    /// using distinct one-time challenges. TSA trust is only established when
+    /// a trusted TSA public key is supplied.
+    pub fn verify_session_file(
+        file: &[u8],
+        envelope_input: impl Into<EnvelopeInput>,
+        options: &SessionFileVerifyOptions,
+    ) -> R<SessionFileVerificationResult> {
+        use std::collections::{HashMap, HashSet};
+
+        if options.require_trusted_tsa && options.trusted_tsa_public_keys.is_none() {
+            return Err(MajikSignatureError::validation(
+                "trustedTsaPublicKeys is required when requireTrustedTSA is enabled",
+                Some("trustedTsaPublicKeys"),
+            ));
+        }
+
+        let envelope = crate::core::envelope::MajikSignatureEnvelope::from_input(envelope_input.into())?;
+        let signatures = envelope.signatures().to_vec();
+        if signatures.is_empty() {
+            return Ok(SessionFileVerificationResult {
+                valid: false,
+                results: Vec::new(),
+                chain: None,
+                tsa_results: Vec::new(),
+                reason: Some("Session envelope contains no participant signatures".into()),
+            });
+        }
+
+        let invalid_result = |signature: &MajikSignatureJSON, reason: String| VerificationResult {
+            valid: false,
+            signer_id: Some(signature.signer_id.clone()),
+            content_hash: Some(signature.content_hash.clone()),
+            timestamp: signature.timestamp.clone(),
+            content_type: signature.content_type.clone(),
+            session_context_hash: signature.session_context_hash.clone(),
+            reason: Some(reason),
+            ..Default::default()
+        };
+
+        let mut chain: Option<FileChainVerification> = None;
+        let cryptographic_results: Vec<VerificationResult>;
+        if !envelope.file_versions().is_empty() {
+            let verified_chain = Self::verify_file_detached_chain(
+                file,
+                envelope.clone(),
+                options.mime_type.as_deref(),
+                options.now,
+            )?;
+            let mut by_signer: HashMap<String, VerificationResult> = HashMap::new();
+            for result in &verified_chain.history {
+                if let Some(signer_id) = &result.base.signer_id {
+                    by_signer.insert(signer_id.clone(), result.base.clone());
+                }
+            }
+            if let Some(signer_id) = &verified_chain.latest.signer_id {
+                by_signer.insert(signer_id.clone(), verified_chain.latest.clone());
+            }
+
+            cryptographic_results = signatures
+                .iter()
+                .map(|signature| {
+                    let Some(trusted_keys) = options.expected_signer_public_keys.get(&signature.signer_id)
+                    else {
+                        return invalid_result(
+                            signature,
+                            format!(
+                                "No trusted public keys were supplied for signer {}",
+                                signature.signer_id
+                            ),
+                        );
+                    };
+
+                    let commitment = match Self::verify_commitment(signature, trusted_keys, options.now) {
+                        Ok(result) => result,
+                        Err(error) => return invalid_result(signature, error.message().to_string()),
+                    };
+                    if !commitment.base.valid {
+                        return commitment.base;
+                    }
+
+                    by_signer.get(&signature.signer_id).cloned().unwrap_or_else(|| {
+                        invalid_result(
+                            signature,
+                            "No verified revision-chain result exists for this signer".into(),
+                        )
+                    })
+                })
+                .collect();
+            chain = Some(verified_chain);
+        } else {
+            let has_unverifiable_revision_commitment =
+                signatures.iter().any(|signature| signature.version_chain_hash.is_some());
+            let stripped = Self::strip_from(file, options.mime_type.as_deref())?;
+            cryptographic_results = signatures
+                .iter()
+                .map(|signature| {
+                    if has_unverifiable_revision_commitment {
+                        return invalid_result(
+                            signature,
+                            "Signature commits to a revision chain, but fileVersions is missing".into(),
+                        );
+                    }
+                    let Some(trusted_keys) = options.expected_signer_public_keys.get(&signature.signer_id)
+                    else {
+                        return invalid_result(
+                            signature,
+                            format!(
+                                "No trusted public keys were supplied for signer {}",
+                                signature.signer_id
+                            ),
+                        );
+                    };
+                    match Self::verify(&stripped, signature, trusted_keys, options.now) {
+                        Ok(result) => result,
+                        Err(error) => invalid_result(signature, error.message().to_string()),
+                    }
+                })
+                .collect();
+        }
+
+        let resolved_contexts: Vec<(String, crate::core::session_context::MajikSessionSigningContext)> =
+            signatures
+                .iter()
+                .filter_map(|signature| {
+                    options
+                        .expected_session_contexts
+                        .get(&signature.signer_id)
+                        .cloned()
+                        .map(|context| (signature.signer_id.clone(), context))
+                })
+                .collect();
+        let session_ids: HashSet<String> =
+            resolved_contexts.iter().map(|(_, context)| context.session_id.clone()).collect();
+        let policy_hashes: HashSet<String> =
+            resolved_contexts.iter().map(|(_, context)| context.policy_hash.clone()).collect();
+        let challenge_ids: Vec<String> =
+            resolved_contexts.iter().map(|(_, context)| context.challenge_id.clone()).collect();
+        let unique_challenges = challenge_ids.iter().collect::<HashSet<_>>().len() == challenge_ids.len();
+
+        let session_scope_reason = if resolved_contexts.len() != signatures.len() {
+            None
+        } else if session_ids.len() != 1 {
+            Some("All participant signatures must belong to the same SignRoom session".to_string())
+        } else if policy_hashes.len() != 1 {
+            Some("All participant signatures must commit to the same immutable session policy".to_string())
+        } else if !unique_challenges {
+            Some("Each participant must use a distinct one-time challenge".to_string())
+        } else {
+            None
+        };
+
+        let results: Vec<VerificationResult> = signatures
+            .iter()
+            .zip(cryptographic_results)
+            .map(|(signature, mut base)| {
+                if envelope.has_allowlist() {
+                    let is_issuer =
+                        envelope.allowlist_signer_id() == Some(signature.signer_id.as_str());
+                    let allowed = envelope.allowlist().unwrap_or(&[]).iter().any(|entry| {
+                        entry.signer_id == signature.signer_id
+                            && entry.ed_public_key == signature.signer_ed_public_key
+                            && entry.ml_dsa_public_key == signature.signer_ml_dsa_public_key
+                    });
+                    if !is_issuer && !allowed {
+                        base.valid = false;
+                        base.session_context_hash = signature.session_context_hash.clone();
+                        base.reason = Some("Signer is not authorized by the envelope allowlist".into());
+                        return base;
+                    }
+                }
+
+                if let Some(reason) = &session_scope_reason {
+                    base.valid = false;
+                    base.session_context_hash = signature.session_context_hash.clone();
+                    base.reason = Some(reason.clone());
+                    return base;
+                }
+
+                let Some(context) =
+                    options.expected_session_contexts.get(&signature.signer_id)
+                else {
+                    base.valid = false;
+                    base.session_context_hash = signature.session_context_hash.clone();
+                    base.reason = Some(format!(
+                        "No authoritative session context was supplied for signer {}",
+                        signature.signer_id
+                    ));
+                    return base;
+                };
+                let expected_hash =
+                    match crate::core::session_context::build_session_context_hash(context) {
+                        Ok(hash) => hash,
+                        Err(error) => {
+                            base.valid = false;
+                            base.session_context_hash = signature.session_context_hash.clone();
+                            base.reason =
+                                Some(format!("Invalid expected session context: {}", error.message()));
+                            return base;
+                        }
+                    };
+                if signature.session_context_hash.as_deref() != Some(expected_hash.as_str()) {
+                    base.valid = false;
+                    base.session_context_hash = signature.session_context_hash.clone();
+                    base.reason = Some(
+                        "Signature session context does not match the authoritative session, challenge, and policy"
+                            .into(),
+                    );
+                    return base;
+                }
+                base.session_context_hash = signature.session_context_hash.clone();
+                base
+            })
+            .collect();
+
+        let tsa_results: Vec<SessionFileTsaVerificationResult> = signatures
+            .iter()
+            .map(|signature| {
+                let instance = match Self::from_json(signature) {
+                    Ok(instance) => instance,
+                    Err(error) => {
+                        return SessionFileTsaVerificationResult {
+                            signer_id: signature.signer_id.clone(),
+                            present: signature.tsa.is_some(),
+                            valid: false,
+                            trusted: false,
+                            reason: Some(error.message().to_string()),
+                        };
+                    }
+                };
+                if !instance.has_tsa() {
+                    return SessionFileTsaVerificationResult {
+                        signer_id: signature.signer_id.clone(),
+                        present: false,
+                        valid: !options.require_tsa,
+                        trusted: false,
+                        reason: if options.require_tsa {
+                            Some("A TSA attestation is required for this participant".into())
+                        } else {
+                            None
+                        },
+                    };
+                }
+                match instance.verify_tsa_with_trusted_keys(options.trusted_tsa_public_keys.as_ref()) {
+                    Ok(verification) => SessionFileTsaVerificationResult {
+                        signer_id: signature.signer_id.clone(),
+                        present: true,
+                        valid: verification.valid,
+                        trusted: options.trusted_tsa_public_keys.is_some() && verification.valid,
+                        reason: verification.reason,
+                    },
+                    Err(error) => SessionFileTsaVerificationResult {
+                        signer_id: signature.signer_id.clone(),
+                        present: true,
+                        valid: false,
+                        trusted: false,
+                        reason: Some(error.message().to_string()),
+                    },
+                }
+            })
+            .collect();
+
+        let allowlist_integrity = envelope.verify_allowlist_integrity();
+        let version_chain_integrity = envelope.verify_version_chain_integrity();
+        let seal_integrity = if envelope.is_sealed() {
+            envelope.verify_seal()
+        } else {
+            SealVerificationResult { valid: true, ..Default::default() }
+        };
+        let chain_valid =
+            chain.as_ref().map(|result| result.chain_valid).unwrap_or(version_chain_integrity.valid);
+        let tsa_valid = tsa_results.iter().all(|result| result.valid);
+        let trusted_tsa_valid = !options.require_trusted_tsa
+            || tsa_results.iter().all(|result| result.present && result.valid && result.trusted);
+
+        let valid = results.iter().all(|result| result.valid)
+            && allowlist_integrity.valid
+            && version_chain_integrity.valid
+            && seal_integrity.valid
+            && chain_valid
+            && tsa_valid
+            && trusted_tsa_valid;
+
+        let reason = results
+            .iter()
+            .find(|result| !result.valid)
+            .and_then(|result| result.reason.clone())
+            .or(allowlist_integrity.reason)
+            .or(version_chain_integrity.reason)
+            .or(seal_integrity.reason)
+            .or_else(|| {
+                if chain.as_ref().is_some_and(|result| !result.chain_valid) {
+                    Some("Detached revision chain verification failed".into())
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                tsa_results.iter().find(|result| !result.valid).and_then(|result| result.reason.clone())
+            })
+            .or_else(|| {
+                if !trusted_tsa_valid {
+                    Some("Every TSA attestation must verify against the trusted TSA public key".into())
+                } else {
+                    None
+                }
+            });
+
+        Ok(SessionFileVerificationResult { valid, results, chain, tsa_results, reason })
+    }
+
     /// Sign a file and embed the signature. First signer may pass
     /// `expected_signers` to restrict future signers; sealed files are always rejected.
     pub fn sign_file(

@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Add session-aware detached-file signing and strict per-participant SignRoom verification APIs, including MJKSIG sidecar output, revision-chain checks, allowlist/seal integrity, and optional pinned TSA verification.
+- Add Rust tests for single-signer and multi-signer SignRoom detached workflows, including visual-stamp revision chains and challenge isolation.
 - Add SignRoom session-context commitments, digest-only hybrid verification, and signature-scoped TSA attestations with optional trusted TSA fingerprint pinning.
 - Extend JSON, compact signature, and CBOR wire representations while preserving legacy signatures and content-scoped TSA payloads.
 

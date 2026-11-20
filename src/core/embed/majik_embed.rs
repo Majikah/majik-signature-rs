@@ -95,6 +95,8 @@ pub struct SignDetachedOptions {
     pub prior_file: Option<Vec<u8>>,
     /// Free-form note stored on the new `FileVersion` entry.
     pub message: Option<String>,
+    /// Canonical SignRoom context commitment injected by sign_session_file().
+    pub session_context_hash: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -493,17 +495,23 @@ impl MajikSignatureEmbed {
 
         let original = p.handler.strip(p.bytes)?;
         let allowlist_hash = envelope.resolve_allowlist_hash_for(key, options.expected_signers.as_deref());
-        let new_version = options.prior_file.as_ref().map(|_| {
+        // A session-bound first signer establishes revision 1 even before
+        // any participant adds a visual stamp. Later file mutations append
+        // subsequent revisions through prior_file as before.
+        let starts_session_chain = options.session_context_hash.is_some() && envelope.signatures().is_empty();
+        let new_version = if options.prior_file.is_some() || starts_session_chain {
             let last = envelope.last_file_version();
-            FileVersion {
+            Some(FileVersion {
                 version: last.map(|entry| entry.version + 1).unwrap_or(1),
                 timestamp: options.timestamp.clone().unwrap_or_else(now_iso),
                 content_hash: bytes_to_base64(&hash_content(&original)),
                 previous_version_hash: last.map(MajikSignatureEnvelope::hash_file_version_entry),
                 created_by: Some(key.fingerprint().to_string()),
                 message: options.message.clone().filter(|message| !message.is_empty()),
-            }
-        });
+            })
+        } else {
+            None
+        };
         let version_chain_hash = new_version.as_ref().map(|entry| {
             let mut chain = envelope.file_versions().to_vec();
             chain.push(entry.clone());
@@ -522,6 +530,7 @@ impl MajikSignatureEmbed {
                 valid_until: options.valid_until.clone(),
                 allowlist_hash,
                 version_chain_hash,
+                session_context_hash: options.session_context_hash.clone(),
                 ..Default::default()
             }),
         )?;
