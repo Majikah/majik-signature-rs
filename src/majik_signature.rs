@@ -979,7 +979,7 @@ impl MajikSignature {
             };
             let expected_previous_version_hash = session_envelope
                 .last_file_version()
-                .map(|last| crate::core::envelope::MajikSignatureEnvelope::hash_file_version_entry(last));
+                .map(crate::core::envelope::MajikSignatureEnvelope::hash_file_version_entry);
             let timestamp_is_canonical = file_version
                 .timestamp
                 .parse::<Timestamp>()
