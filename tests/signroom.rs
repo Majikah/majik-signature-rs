@@ -352,7 +352,7 @@ fn session_file_api_verifies_individual_challenges_and_visual_stamp_revisions() 
     assert!(reused_challenge.reason.unwrap().contains("distinct one-time challenge"));
 
     // Missing authoritative context is reported against that participant.
-    verify_options.expected_session_contexts.remove(&participant.fingerprint().to_string());
+    verify_options.expected_session_contexts.remove(participant.fingerprint());
     let missing_context = MajikSignature::verify_session_file(
         &participant_signed.blob,
         participant_signed.mjksig.as_slice(),
