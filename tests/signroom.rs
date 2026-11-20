@@ -410,4 +410,3 @@ fn session_file_api_verifies_signature_scoped_tsa_with_a_pinned_identity() {
     assert!(verified.tsa_results[0].valid);
     assert!(verified.tsa_results[0].trusted);
 }
-
