@@ -469,7 +469,10 @@ pub struct SessionFileSignOptions {
     pub valid_until: Option<ISODateString>,
     pub existing_envelope: Option<crate::core::envelope::EnvelopeInput>,
     pub tsa: Option<MajikTimestamp>,
+    /// Exact FileVersion entry to append and commit in this signature.
+    pub file_version: Option<FileVersion>,
     /// Exact prior document bytes before this participant's visual stamp.
+    /// Mutually exclusive with file_version.
     pub prior_file: Option<Vec<u8>>,
     pub message: Option<String>,
 }
@@ -486,6 +489,7 @@ impl SessionFileSignOptions {
             valid_until: None,
             existing_envelope: None,
             tsa: None,
+            file_version: None,
             prior_file: None,
             message: None,
         }
