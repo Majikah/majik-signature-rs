@@ -15,7 +15,9 @@ use super::codec::CborError;
 use crate::anchor::types::{
     MajikChainAnchor, MajikChainAnchorDigest, MajikChainAnchorPayload, MajikChainAnchorStatus,
 };
-use crate::core::constants::{ED25519_PUBLIC_KEY_LEN, ED25519_SIGNATURE_LEN, ML_DSA_87_PUBLIC_KEY_LEN, ML_DSA_87_SIGNATURE_LEN};
+use crate::core::constants::{
+    ED25519_PUBLIC_KEY_LEN, ED25519_SIGNATURE_LEN, ML_DSA_87_PUBLIC_KEY_LEN, ML_DSA_87_SIGNATURE_LEN,
+};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64};
 use crate::core::types::*;
 
