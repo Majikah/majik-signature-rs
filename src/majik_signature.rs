@@ -12,7 +12,7 @@
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
-use ed25519_dalek::{Signature as EdSignature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
+use ed25519_dalek::{Signature as EdSignature, Signer as _, SigningKey, VerifyingKey};
 use fips204::ml_dsa_87;
 use fips204::traits::{SerDes as _, Signer as _, Verifier as _};
 use jiff::Timestamp;
@@ -414,6 +414,70 @@ impl MajikSignature {
             content_type: env.content_type,
             session_context_hash: env.session_context_hash,
             ..Default::default()
+        })
+    }
+
+    /// Verify the cryptographic signatures of an envelope WITHOUT checking them against any
+    /// content — used to validate a revision's commitment (`versionChainHash`) in isolation.
+    pub fn verify_commitment<S: SignatureLike + ?Sized>(
+        signature: &S,
+        public_keys: &MajikSignerPublicKeys,
+        now: Option<Timestamp>,
+    ) -> R<RevisionCommitmentResult> {
+        MajikSignatureValidator::validate_signer_public_keys(public_keys)?;
+        let env = signature.to_signature_json();
+        MajikSignatureValidator::validate_json(&env)?;
+
+        let invalid = |reason: Option<String>| RevisionCommitmentResult {
+            base: VerificationResult {
+                valid: false,
+                signer_id: Some(env.signer_id.clone()),
+                content_hash: Some(env.content_hash.clone()),
+                timestamp: env.timestamp.clone(),
+                content_type: env.content_type.clone(),
+                session_context_hash: env.session_context_hash.clone(),
+                reason,
+                ..Default::default()
+            },
+            commitment_only: true,
+        };
+
+        if public_keys.signer_id != env.signer_id {
+            return Ok(invalid(Some("Signer key fingerprint does not match signature signerId".into())));
+        }
+        if bytes_to_base64(&public_keys.ed_public_key) != env.signer_ed_public_key
+            || bytes_to_base64(&public_keys.ml_dsa_public_key) != env.signer_ml_dsa_public_key
+        {
+            return Ok(invalid(Some("Supplied signer public keys do not match the signature record".into())));
+        }
+
+        let payload = payload_for(&env);
+        if let Some(reason) = check_crypto(&env, public_keys, &payload) {
+            return Ok(invalid(Some(reason)));
+        }
+
+        if let Some(vu) = env.valid_until.as_deref().and_then(parse_iso_millis) {
+            if resolve_now(now).as_millisecond() > vu {
+                let mut r = invalid(Some(format!(
+                    "Signature expired at {}",
+                    env.valid_until.as_deref().unwrap_or_default()
+                )));
+                r.base.expired = Some(true);
+                return Ok(r);
+            }
+        }
+
+        Ok(RevisionCommitmentResult {
+            base: VerificationResult {
+                valid: true,
+                signer_id: Some(env.signer_id),
+                content_hash: Some(env.content_hash),
+                timestamp: env.timestamp,
+                content_type: env.content_type,
+                session_context_hash: env.session_context_hash,
+                ..Default::default()
+            },
+            commitment_only: true,
         })
     }
 
