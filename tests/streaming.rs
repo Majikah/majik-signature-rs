@@ -96,20 +96,22 @@ fn streaming_hash_reports_progress() {
     let bytes = vec![0x22; 1024 * 1024 + 19];
     let mut reader = io::Cursor::new(&bytes);
     let mut last_progress = 0u64;
-    let mut callback = |progress: StreamingHashProgress| {
-        last_progress = progress.bytes_processed;
+    let processed = {
+        let mut callback = |progress: StreamingHashProgress| {
+            last_progress = progress.bytes_processed;
+        };
+        let mut options = StreamingHashOptions {
+            chunk_size: 64 * 1024,
+            total_bytes: Some(bytes.len() as u64),
+            on_progress: Some(&mut callback),
+            ..StreamingHashOptions::default()
+        };
+        hash_reader(&mut reader, &mut options).unwrap().bytes_processed
     };
-    let mut options = StreamingHashOptions {
-        chunk_size: 64 * 1024,
-        total_bytes: Some(bytes.len() as u64),
-        on_progress: Some(&mut callback),
-        ..StreamingHashOptions::default()
-    };
-    let result = hash_reader(&mut reader, &mut options).unwrap();
-    drop(options);
-    drop(callback);
+
+    // The scoped options and callback release their mutable borrows naturally.
     assert_eq!(last_progress, bytes.len() as u64);
-    assert_eq!(result.bytes_processed, bytes.len() as u64);
+    assert_eq!(processed, bytes.len() as u64);
 }
 
 #[test]
