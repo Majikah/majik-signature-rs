@@ -99,7 +99,6 @@ pub const MJKSMAP_FILE_EXTENSION: &str = ".mjksmap";
 /// Conventional name/location when packaged in a signed batch zip.
 pub const MJKSMAP_DEFAULT_FILENAME: &str = "signatures.mjksmap";
 
-
 // ─── Untrusted envelope parsing limits ──────────────────────────────────────
 pub const SHA256_DIGEST_LEN: usize = 32;
 pub const MAX_SIGNER_ID_CHARS: usize = 256;

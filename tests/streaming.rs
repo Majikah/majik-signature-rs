@@ -70,13 +70,7 @@ fn reader_signing_and_verification_match_buffered_signatures() {
     let public_keys = MajikSignature::public_keys_from_majik_key(&key).unwrap();
 
     let mut verify_reader = FragmentedReader::new(content, &[3, 1, 5, 2]);
-    let result = MajikSignature::verify_reader(
-        &mut verify_reader,
-        &signature,
-        &public_keys,
-        None,
-    )
-    .unwrap();
+    let result = MajikSignature::verify_reader(&mut verify_reader, &signature, &public_keys, None).unwrap();
     assert!(result.valid, "{:?}", result.reason);
 
     let buffered = MajikSignature::sign(content, &key, None).unwrap();
@@ -87,18 +81,13 @@ fn reader_signing_and_verification_match_buffered_signatures() {
 fn streaming_hash_enforces_limits_and_cancellation() {
     let bytes = vec![0x11; 1024];
     let mut reader = io::Cursor::new(&bytes);
-    let mut limited = StreamingHashOptions {
-        max_bytes: Some(100),
-        ..StreamingHashOptions::default()
-    };
+    let mut limited = StreamingHashOptions { max_bytes: Some(100), ..StreamingHashOptions::default() };
     assert!(hash_reader(&mut reader, &mut limited).is_err());
 
     let cancelled = AtomicBool::new(true);
     let mut reader = io::Cursor::new(&bytes);
-    let mut options = StreamingHashOptions {
-        cancellation: Some(&cancelled),
-        ..StreamingHashOptions::default()
-    };
+    let mut options =
+        StreamingHashOptions { cancellation: Some(&cancelled), ..StreamingHashOptions::default() };
     assert!(hash_reader(&mut reader, &mut options).is_err());
 }
 
@@ -123,7 +112,6 @@ fn streaming_hash_reports_progress() {
     assert_eq!(result.bytes_processed, bytes.len() as u64);
 }
 
-
 #[test]
 fn ed25519_scalar_malleability_is_rejected() {
     let key = new_key("malleability-alice");
@@ -134,9 +122,8 @@ fn ed25519_scalar_malleability_is_rejected() {
 
     let mut sig = base64_to_bytes(&altered.ed_signature).unwrap();
     const L: [u8; 32] = [
-        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
-        0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
     ];
     let mut carry = 0u16;
     for index in 0..32 {

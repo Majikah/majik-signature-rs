@@ -15,10 +15,7 @@ use super::types::{StreamingHashOptions, StreamingHashProgress, StreamingHashRes
 type R<T> = MajikSignatureResult<T>;
 
 fn cancelled(options: &StreamingHashOptions<'_>) -> bool {
-    options
-        .cancellation
-        .map(|flag| flag.load(Ordering::Acquire))
-        .unwrap_or(false)
+    options.cancellation.map(|flag| flag.load(Ordering::Acquire)).unwrap_or(false)
 }
 
 /// Hash any reader incrementally using one SHA-256 state.
@@ -65,19 +62,16 @@ pub fn hash_reader<Rd: Read>(
             Ok(count) => count,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => {
-                return Err(MajikSignatureError::with_cause(
-                    "Failed to read content stream",
-                    error,
-                ));
+                return Err(MajikSignatureError::with_cause("Failed to read content stream", error));
             }
         };
 
         let count_u64 = u64::try_from(count).map_err(|_| {
             MajikSignatureError::validation("Read size exceeds the supported range", Some("source"))
         })?;
-        let next = bytes_processed.checked_add(count_u64).ok_or_else(|| {
-            MajikSignatureError::validation("Input byte count overflowed", Some("source"))
-        })?;
+        let next = bytes_processed
+            .checked_add(count_u64)
+            .ok_or_else(|| MajikSignatureError::validation("Input byte count overflowed", Some("source")))?;
 
         if let Some(max_bytes) = options.max_bytes {
             if next > max_bytes {
@@ -92,19 +86,14 @@ pub fn hash_reader<Rd: Read>(
         bytes_processed = next;
 
         if let Some(callback) = options.on_progress.as_deref_mut() {
-            callback(StreamingHashProgress {
-                bytes_processed,
-                total_bytes: options.total_bytes,
-            });
+            callback(StreamingHashProgress { bytes_processed, total_bytes: options.total_bytes });
         }
     }
 
     if let Some(expected) = options.total_bytes {
         if bytes_processed != expected {
             return Err(MajikSignatureError::validation(
-                format!(
-                    "Stream length mismatch: expected {expected} bytes, read {bytes_processed}"
-                ),
+                format!("Stream length mismatch: expected {expected} bytes, read {bytes_processed}"),
                 Some("total_bytes"),
             ));
         }
@@ -119,10 +108,7 @@ pub fn hash_reader<Rd: Read>(
 }
 
 /// Hash a byte slice using the same automatic threshold policy as the TS engine.
-pub fn hash_bytes_auto(
-    bytes: &[u8],
-    options: &mut StreamingHashOptions<'_>,
-) -> R<StreamingHashResult> {
+pub fn hash_bytes_auto(bytes: &[u8], options: &mut StreamingHashOptions<'_>) -> R<StreamingHashResult> {
     if !validate_chunk_size(options.chunk_size) {
         return Err(MajikSignatureError::validation(
             format!(
@@ -156,10 +142,7 @@ pub fn hash_bytes_auto(
         }
         if let Some(callback) = options.on_progress.as_deref_mut() {
             if size > 0 {
-                callback(StreamingHashProgress {
-                    bytes_processed: size,
-                    total_bytes: Some(size),
-                });
+                callback(StreamingHashProgress { bytes_processed: size, total_bytes: Some(size) });
             }
         }
         return Ok(StreamingHashResult {

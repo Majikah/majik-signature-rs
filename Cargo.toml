@@ -18,7 +18,7 @@ crate-type = ["lib"]
 majik-key = "1.1.1"
 ed25519-dalek = "3"
 fips204 = "0.5.0"
-sha2 = "0.11"
+sha2 = "0.11.2"
 sha3 = "0.12"
 base64 = "0.23.1"
 hex = "0.4"
@@ -30,9 +30,9 @@ getrandom = "0.4.3"
 uuid = { version = "1.29.3", features = ["v4"] }
 jiff = "0.2.45"
 thiserror = "2.0.21"
-zip = { version = "9.8.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-clap = { version = "4.6.9", features = ["derive"], optional = true }
+clap = { version = "4.6.10", features = ["derive"], optional = true }
 rpassword = { version = "7.5.5", optional = true }
 
 [features]

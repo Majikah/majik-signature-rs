@@ -29,8 +29,8 @@ use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 use crate::core::payload::{
     build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
 };
-use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::streaming::{hash_reader, StreamingHashOptions};
+use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
 

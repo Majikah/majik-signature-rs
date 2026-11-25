@@ -17,8 +17,8 @@ use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{bytes_to_base64, hash_content};
 use crate::core::time::now_iso;
-use crate::core::validator::MajikSignatureValidator;
 use crate::core::types::*;
+use crate::core::validator::MajikSignatureValidator;
 use crate::majik_signature::signing_public_keys_b64;
 
 type R<T> = MajikSignatureResult<T>;
@@ -681,9 +681,10 @@ impl MajikSignatureEnvelope {
     /// Both normalize into the same validated envelope.
     pub fn from_mjksig(raw: &[u8]) -> R<MajikSignatureEnvelope> {
         if raw.len() > MAX_ENVELOPE_BYTES + MJKSIG_HEADER_LEN {
-            return Err(MajikSignatureError::serialization(
-                format!("MJKSIG input exceeds the maximum supported size of {} bytes", MAX_ENVELOPE_BYTES + MJKSIG_HEADER_LEN),
-            ));
+            return Err(MajikSignatureError::serialization(format!(
+                "MJKSIG input exceeds the maximum supported size of {} bytes",
+                MAX_ENVELOPE_BYTES + MJKSIG_HEADER_LEN
+            )));
         }
         if raw.len() < MJKSIG_HEADER_LEN + 1 {
             return Err(MajikSignatureError::serialization(
@@ -776,9 +777,9 @@ impl MajikSignatureEnvelope {
     /// `MajikSignatureJSON` (promoted into a one-signature envelope).
     pub fn from_json_str(json: &str) -> R<MajikSignatureEnvelope> {
         if json.len() > MAX_ENVELOPE_BYTES {
-            return Err(MajikSignatureError::serialization(
-                format!("Embedded signature JSON exceeds the maximum supported size of {MAX_ENVELOPE_BYTES} bytes"),
-            ));
+            return Err(MajikSignatureError::serialization(format!(
+                "Embedded signature JSON exceeds the maximum supported size of {MAX_ENVELOPE_BYTES} bytes"
+            )));
         }
         let parsed: Value = serde_json::from_str(json).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Embedded signature payload is not valid JSON", e)
