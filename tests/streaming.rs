@@ -117,6 +117,36 @@ fn streaming_hash_reports_progress() {
         ..StreamingHashOptions::default()
     };
     let result = hash_reader(&mut reader, &mut options).unwrap();
+    drop(options);
+    drop(callback);
     assert_eq!(last_progress, bytes.len() as u64);
     assert_eq!(result.bytes_processed, bytes.len() as u64);
+}
+
+
+#[test]
+fn ed25519_scalar_malleability_is_rejected() {
+    let key = new_key("malleability-alice");
+    let content = b"malleability regression fixture";
+    let signature = MajikSignature::sign(content, &key, None).unwrap();
+    let public_keys = MajikSignature::public_keys_from_majik_key(&key).unwrap();
+    let mut altered = signature.to_json();
+
+    let mut sig = base64_to_bytes(&altered.ed_signature).unwrap();
+    const L: [u8; 32] = [
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+        0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+    ];
+    let mut carry = 0u16;
+    for index in 0..32 {
+        let sum = sig[32 + index] as u16 + L[index] as u16 + carry;
+        sig[32 + index] = sum as u8;
+        carry = sum >> 8;
+    }
+    assert_eq!(carry, 0);
+    altered.ed_signature = bytes_to_base64(&sig);
+
+    let result = MajikSignature::verify(content, &altered, &public_keys, None).unwrap();
+    assert!(!result.valid);
 }

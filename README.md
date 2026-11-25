@@ -333,3 +333,16 @@ Developed by **Josef Elijah Fabian (Zelijah)** | [Majikah Solutions OPC](https:/
 - **Business Email**: [business@majikah.solutions](mailto:business@majikah.solutions)
 - **Official Website**: [https://www.thezelijah.world](https://www.thezelijah.world)
 - **Majikah Ecosystem**: [https://majikah.solutions](https://majikah.solutions)
+
+## Input hardening
+
+Untrusted signature envelopes require exact canonical base64 lengths for public
+keys, content digests, and signature bytes. Metadata strings and nested TSA
+fields are length-bounded; control characters are rejected from identity and
+protocol fields. Signature, allowlist, anchor, and revision collections are
+bounded, and JSON/CBOR/MJKSIG parser inputs have a 16 MiB ceiling. Raw document
+content remains uncapped by this envelope limit and may be streamed through
+reader APIs.
+
+Ed25519 verification uses `VerifyingKey::verify_strict`, rejecting
+non-canonical signatures and weak-key / point-malleability cases.

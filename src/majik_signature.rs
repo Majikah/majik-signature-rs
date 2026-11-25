@@ -217,9 +217,18 @@ impl MajikSignature {
         let options = options.unwrap_or(&default_opts);
 
         MajikSignatureValidator::validate_content_type(options.content_type.as_deref())?;
+        if let Some(timestamp) = options.timestamp.as_deref() {
+            MajikSignatureValidator::validate_timestamp_for_signing(timestamp)?;
+        }
         MajikSignatureValidator::validate_valid_until(options.valid_until.as_deref())?;
         if let Some(session_hash) = options.session_context_hash.as_deref() {
             MajikSignatureValidator::validate_session_context_hash(session_hash)?;
+        }
+        if let Some(hash) = options.allowlist_hash.as_deref() {
+            MajikSignatureValidator::validate_sha256_digest(hash, "allowlistHash")?;
+        }
+        if let Some(hash) = options.version_chain_hash.as_deref() {
+            MajikSignatureValidator::validate_sha256_digest(hash, "versionChainHash")?;
         }
 
         if key.is_locked() {
@@ -890,7 +899,7 @@ fn check_crypto(env: &MajikSignatureJSON, keys: &MajikSignerPublicKeys, payload:
         let vk = VerifyingKey::from_bytes(&pk).map_err(|_| ())?;
         let sig_bytes = base64_to_bytes(&env.ed_signature).map_err(|_| ())?;
         let sig = EdSignature::from_slice(&sig_bytes).map_err(|_| ())?;
-        Ok(vk.verify(payload, &sig).is_ok())
+        Ok(vk.verify_strict(payload, &sig).is_ok())
     })();
     match ed_ok {
         Err(()) => return Some("Failed to verify Ed25519 signature".into()),
