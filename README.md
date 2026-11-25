@@ -227,6 +227,31 @@ src/
 └── bin/mjksig.rs               ← cli.ts
 ```
 
+## Streaming content hashing
+
+Large-content signing and verification are available through reader-based APIs:
+MajikSignature::sign_reader and MajikSignature::verify_reader. Use the
+*_with_options variants to configure the bounded read buffer, an optional byte
+ceiling, progress callbacks, and cancellation. The default chunk size is 1 MiB,
+with a configurable range of 64 KiB–8 MiB. Chunk boundaries are not included
+in the digest: streaming uses one continuous SHA-256 state and produces the same
+32-byte content hash as the existing in-memory APIs.
+
+The reader APIs hash raw content bytes. Existing format-aware embedded signing
+still uses the format handlers; it is not automatically converted to streaming
+by these raw reader APIs.
+
+~~~rust
+use std::io::BufReader;
+use majik_signature::*;
+
+let mut input = BufReader::new(std::fs::File::open("large.bin")?);
+let signature = MajikSignature::sign_reader(&mut input, &key, None)?;
+~~~
+
+MajikSignature::verify_reader accepts a reader and detached signature record.
+Existing byte-slice APIs and signature wire formats remain unchanged.
+
 ## Rust API notes
 
 - **Synchronous.** `async`/`Promise`/`Blob`/`Uint8Array` become plain functions over `&[u8]` / `Vec<u8>`. A `Blob`'s declared type is passed as `mime_type` in the options structs.
@@ -308,3 +333,16 @@ Developed by **Josef Elijah Fabian (Zelijah)** | [Majikah Solutions OPC](https:/
 - **Business Email**: [business@majikah.solutions](mailto:business@majikah.solutions)
 - **Official Website**: [https://www.thezelijah.world](https://www.thezelijah.world)
 - **Majikah Ecosystem**: [https://majikah.solutions](https://majikah.solutions)
+
+## Input hardening
+
+Untrusted signature envelopes require exact canonical base64 lengths for public
+keys, content digests, and signature bytes. Metadata strings and nested TSA
+fields are length-bounded; control characters are rejected from identity and
+protocol fields. Signature, allowlist, anchor, and revision collections are
+bounded, and JSON/CBOR/MJKSIG parser inputs have a 16 MiB ceiling. Raw document
+content remains uncapped by this envelope limit and may be streamed through
+reader APIs.
+
+Ed25519 verification uses `VerifyingKey::verify_strict`, rejecting
+non-canonical signatures and weak-key / point-malleability cases.

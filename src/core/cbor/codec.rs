@@ -21,6 +21,12 @@ pub fn encode_cbor(value: &Value) -> Result<Vec<u8>, CborError> {
     let mut out = Vec::new();
     ciborium::ser::into_writer(value, &mut out)
         .map_err(|e| CborError::new(format!("CBOR encoding failed: {e}")))?;
+    if out.len() > crate::core::constants::MAX_CBOR_INPUT_BYTES {
+        return Err(CborError::new(format!(
+            "CBOR output exceeds the maximum supported size of {} bytes",
+            crate::core::constants::MAX_CBOR_INPUT_BYTES
+        )));
+    }
     Ok(out)
 }
 
@@ -29,6 +35,12 @@ pub fn encode_cbor(value: &Value) -> Result<Vec<u8>, CborError> {
 /// Rejects empty input, a top-level break code, truncated/malformed items and any
 /// trailing bytes after the first item.
 pub fn decode_cbor(input: &[u8]) -> Result<Value, CborError> {
+    if input.len() > crate::core::constants::MAX_CBOR_INPUT_BYTES {
+        return Err(CborError::new(format!(
+            "CBOR input exceeds the maximum supported size of {} bytes",
+            crate::core::constants::MAX_CBOR_INPUT_BYTES
+        )));
+    }
     if input.is_empty() {
         return Err(CborError::new("CBOR input must not be empty"));
     }

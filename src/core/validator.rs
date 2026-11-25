@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64};
-use crate::core::time::{is_valid_date, parse_iso_millis};
+use crate::core::time::is_valid_date;
 use crate::core::types::{
     ExpectedSigner, MajikSignatureJSON, MajikSignerPublicKeys, MajikTimestamp, MajikTsaPayload,
     MultiSigEnvelope,
@@ -21,11 +21,171 @@ fn verr(message: impl Into<String>, field: Option<&str>) -> MajikSignatureError 
     MajikSignatureError::validation(message, field)
 }
 
-fn non_empty_str(v: Option<&Value>) -> Option<&str> {
-    match v {
-        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.as_str()),
-        _ => None,
+fn required_object_string<'a>(object: &'a serde_json::Map<String, Value>, field: &str) -> R<&'a str> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| verr(format!("{field} must be a non-empty string"), Some(field)))
+}
+
+fn utf16_len(value: &str) -> usize {
+    value.encode_utf16().count()
+}
+
+fn validate_bounded_string(value: &str, max_len: usize, field: &str) -> R {
+    if value.trim().is_empty()
+        || utf16_len(value) > max_len
+        || value.chars().any(|ch| (ch as u32) <= 0x1f || ch == '\u{7f}')
+    {
+        return Err(verr(
+            format!("{field} must be a non-empty string of at most {max_len} characters without control characters"),
+            Some(field),
+        ));
     }
+    Ok(())
+}
+
+fn validate_canonical_base64(value: &str, expected_bytes: usize, field: &str) -> R {
+    let expected_chars = expected_bytes.div_ceil(3) * 4;
+    if utf16_len(value) != expected_chars {
+        return Err(verr(
+            format!("{field} must be canonical base64 encoding of exactly {expected_bytes} bytes"),
+            Some(field),
+        ));
+    }
+    let decoded = base64_to_bytes(value).map_err(|_| {
+        verr(
+            format!("{field} must be canonical base64 encoding of exactly {expected_bytes} bytes"),
+            Some(field),
+        )
+    })?;
+    if decoded.len() != expected_bytes || bytes_to_base64(&decoded) != value {
+        return Err(verr(
+            format!("{field} must be canonical base64 encoding of exactly {expected_bytes} bytes"),
+            Some(field),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_timestamp(value: &str, field: &str) -> R {
+    validate_bounded_string(value, MAX_TIMESTAMP_CHARS, field)?;
+    if !is_valid_date(value) {
+        return Err(verr(format!("{field} must be a valid ISO 8601 date string"), Some(field)));
+    }
+    Ok(())
+}
+
+fn validate_anchor_value(anchor: &Value, index: usize) -> R {
+    let label = format!("chainAnchors[{index}]");
+    let obj = anchor.as_object().ok_or_else(|| verr(format!("{label} must be an object"), Some(&label)))?;
+    if obj.get("version").and_then(Value::as_u64) != Some(1) {
+        return Err(verr(format!("{label}.version must be 1"), Some("chainAnchors")));
+    }
+    validate_bounded_string(required_object_string(obj, "id")?, MAX_TSA_FIELD_CHARS, "id")?;
+    validate_bounded_string(required_object_string(obj, "memo")?, MAX_TSA_FIELD_CHARS, "memo")?;
+    validate_bounded_string(required_object_string(obj, "txSignature")?, MAX_TSA_FIELD_CHARS, "txSignature")?;
+
+    let payload = obj
+        .get("payload")
+        .and_then(Value::as_object)
+        .ok_or_else(|| verr(format!("{label}.payload must be an object"), Some("chainAnchors")))?;
+    let chain = payload
+        .get("chain")
+        .and_then(Value::as_str)
+        .ok_or_else(|| verr(format!("{label}.payload.chain must be a string"), Some("chain")))?;
+    validate_bounded_string(chain, 64, "chain")?;
+    let network = payload
+        .get("network")
+        .and_then(Value::as_str)
+        .ok_or_else(|| verr(format!("{label}.payload.network must be a string"), Some("network")))?;
+    validate_bounded_string(network, 64, "network")?;
+
+    let digest = payload
+        .get("digest")
+        .and_then(Value::as_object)
+        .ok_or_else(|| verr(format!("{label}.payload.digest must be an object"), Some("digest")))?;
+    if digest.get("algorithm").and_then(Value::as_str) != Some("SHA3-512") {
+        return Err(verr(format!("{label}.payload.digest.algorithm must be SHA3-512"), Some("digest")));
+    }
+    let digest_value = digest.get("value").and_then(Value::as_str).unwrap_or_default();
+    if digest_value.len() != SEAL_HASH_HEX_LEN || !digest_value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(verr(
+            format!("{label}.payload.digest.value must be a {SEAL_HASH_HEX_LEN}-character hex digest"),
+            Some("digest"),
+        ));
+    }
+
+    let status = obj.get("status").and_then(Value::as_str).unwrap_or_default();
+    if !matches!(status, "pending" | "confirmed" | "finalized" | "failed") {
+        return Err(verr(format!("{label}.status is invalid"), Some("status")));
+    }
+    for field in ["slot", "blockTime"] {
+        match obj.get(field) {
+            Some(Value::Null) => {}
+            Some(value) if value.as_f64().map(|n| n.is_finite() && n >= 0.0).unwrap_or(false) => {}
+            _ => {
+                return Err(verr(
+                    format!("{label}.{field} must be a non-negative number or null"),
+                    Some(field),
+                ))
+            }
+        }
+    }
+    match obj.get("confirmedAt") {
+        Some(Value::Null) => {}
+        Some(Value::String(value)) => validate_timestamp(value, "confirmedAt")?,
+        _ => {
+            return Err(verr(format!("{label}.confirmedAt must be a timestamp or null"), Some("confirmedAt")))
+        }
+    }
+    Ok(())
+}
+
+fn validate_file_version_value(entry: &Value, index: usize) -> R {
+    let label = format!("fileVersions[{index}]");
+    let obj = entry.as_object().ok_or_else(|| verr(format!("{label} must be an object"), Some(&label)))?;
+    let version = obj.get("version").and_then(Value::as_u64).unwrap_or(0);
+    if version == 0 || version > MAX_FILE_VERSIONS as u64 {
+        return Err(verr(
+            format!("{label}.version is invalid or exceeds the supported limit"),
+            Some("version"),
+        ));
+    }
+    let timestamp = obj
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .ok_or_else(|| verr(format!("{label}.timestamp must be a string"), Some("timestamp")))?;
+    validate_timestamp(timestamp, "timestamp")?;
+
+    for field in ["contentHash", "previousVersionHash", "createdBy"] {
+        if let Some(value) = obj.get(field) {
+            if field != "contentHash" && value.is_null() {
+                continue;
+            }
+            let text = value
+                .as_str()
+                .ok_or_else(|| verr(format!("{label}.{field} must be a base64 string"), Some(field)))?;
+            validate_canonical_base64(text, SHA256_DIGEST_LEN, field)?;
+        }
+    }
+    if let Some(message) = obj.get("message") {
+        if !message.is_null() {
+            let text = message
+                .as_str()
+                .ok_or_else(|| verr(format!("{label}.message must be a string"), Some("message")))?;
+            if utf16_len(text) > MAX_FILE_VERSION_MESSAGE_CHARS {
+                return Err(verr(
+                    format!(
+                        "{label}.message exceeds the limit of {MAX_FILE_VERSION_MESSAGE_CHARS} characters"
+                    ),
+                    Some("message"),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Namespace struct mirroring the TS static class.
@@ -79,19 +239,25 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
+    pub fn validate_timestamp_for_signing(value: &str) -> R {
+        validate_timestamp(value, "timestamp")
+    }
+
+    pub fn validate_sha256_digest(value: &str, field: &str) -> R {
+        validate_canonical_base64(value, SHA256_DIGEST_LEN, field)
+    }
+
     pub fn validate_content_type(content_type: Option<&str>) -> R {
         match content_type {
-            Some(ct) if ct.trim().is_empty() => {
-                Err(verr("contentType must be a non-empty string if provided", Some("contentType")))
-            }
-            _ => Ok(()),
+            Some(ct) => validate_bounded_string(ct, MAX_CONTENT_TYPE_CHARS, "contentType"),
+            None => Ok(()),
         }
     }
 
     // ── Key validators ───────────────────────────────────────────────────────
 
     pub fn validate_signer_public_keys(keys: &MajikSignerPublicKeys) -> R {
-        Self::assert_non_empty_string(&keys.signer_id, "signerId")?;
+        validate_canonical_base64(&keys.signer_id, SHA256_DIGEST_LEN, "signerId")?;
         if keys.ed_public_key.len() != ED25519_PUBLIC_KEY_LEN {
             return Err(MajikSignatureError::key(format!(
                 "edPublicKey must be a 32-byte Uint8Array (got {})",
@@ -139,91 +305,80 @@ impl MajikSignatureValidator {
 
     /// Validate untrusted JSON and, on success, deserialize it into a typed envelope.
     pub fn validate_json_value(json: &Value) -> R<()> {
+        Self::validate_json_value_at(json, 0)
+    }
+
+    fn validate_json_value_at(json: &Value, depth: usize) -> R<()> {
         let j = json.as_object().ok_or_else(|| verr("Signature JSON must be an object", None))?;
 
         match j.get("version") {
             Some(v) if v.as_u64() == Some(MAJIK_SIGNATURE_VERSION as u64) => {}
-            other => {
-                return Err(verr(
-                    format!(
-                        "Unsupported signature version: {}",
-                        other.map(js_display).unwrap_or_else(|| "undefined".into())
-                    ),
-                    Some("version"),
-                ))
-            }
+            _ => return Err(verr("Unsupported signature version", Some("version"))),
         }
 
-        for field in [
-            "signerId",
+        validate_canonical_base64(required_object_string(j, "signerId")?, SHA256_DIGEST_LEN, "signerId")?;
+        validate_canonical_base64(
+            required_object_string(j, "signerEdPublicKey")?,
+            ED25519_PUBLIC_KEY_LEN,
             "signerEdPublicKey",
+        )?;
+        validate_canonical_base64(
+            required_object_string(j, "signerMlDsaPublicKey")?,
+            ML_DSA_87_PUBLIC_KEY_LEN,
             "signerMlDsaPublicKey",
+        )?;
+        validate_canonical_base64(
+            required_object_string(j, "contentHash")?,
+            SHA256_DIGEST_LEN,
             "contentHash",
-            "timestamp",
+        )?;
+        validate_canonical_base64(
+            required_object_string(j, "edSignature")?,
+            ED25519_SIGNATURE_LEN,
             "edSignature",
+        )?;
+        validate_canonical_base64(
+            required_object_string(j, "mlDsaSignature")?,
+            ML_DSA_87_SIGNATURE_LEN,
             "mlDsaSignature",
-        ] {
-            if non_empty_str(j.get(field)).is_none() {
-                return Err(verr(format!("{field} must be a non-empty string"), Some(field)));
-            }
-        }
+        )?;
+        validate_timestamp(required_object_string(j, "timestamp")?, "timestamp")?;
 
-        let s = |k: &str| j.get(k).and_then(Value::as_str).unwrap_or_default();
-
-        if s("signerEdPublicKey").chars().count() < MIN_ED_PUBLIC_KEY_B64_LEN {
-            return Err(verr(
-                "signerEdPublicKey is too short to be a valid Ed25519 public key",
-                Some("signerEdPublicKey"),
-            ));
+        if let Some(value) = j.get("contentType") {
+            let value = value
+                .as_str()
+                .ok_or_else(|| verr("contentType must be a string if present", Some("contentType")))?;
+            Self::validate_content_type(Some(value))?;
         }
-        if s("signerMlDsaPublicKey").chars().count() < MIN_DSA_PUBLIC_KEY_B64_LEN {
-            return Err(verr(
-                "signerMlDsaPublicKey is too short to be a valid ML-DSA-87 public key",
-                Some("signerMlDsaPublicKey"),
-            ));
+        if let Some(value) = j.get("allowlistHash") {
+            let value = value.as_str().ok_or_else(|| {
+                verr("allowlistHash must be a canonical base64 SHA-256 digest", Some("allowlistHash"))
+            })?;
+            validate_canonical_base64(value, SHA256_DIGEST_LEN, "allowlistHash")?;
         }
-        if s("contentHash").chars().count() != CONTENT_HASH_B64_LEN {
-            return Err(verr(
-                format!("contentHash must be exactly {CONTENT_HASH_B64_LEN} base64 chars (SHA-256)"),
-                Some("contentHash"),
-            ));
+        if let Some(value) = j.get("versionChainHash") {
+            let value = value.as_str().ok_or_else(|| {
+                verr("versionChainHash must be a canonical base64 SHA-256 digest", Some("versionChainHash"))
+            })?;
+            validate_canonical_base64(value, SHA256_DIGEST_LEN, "versionChainHash")?;
         }
-        if s("edSignature").chars().count() < MIN_SIGNATURE_B64_LEN {
-            return Err(verr(
-                "edSignature is too short to be a valid Ed25519 signature",
-                Some("edSignature"),
-            ));
-        }
-        if !is_valid_date(s("timestamp")) {
-            return Err(verr("timestamp must be a valid ISO 8601 date string", Some("timestamp")));
-        }
-
-        // `undefined` and absent are the same in serde; an explicit JSON null is not "undefined" in
-        // JS, so it is rejected exactly like TS (typeof null !== "string").
-        if let Some(ct) = j.get("contentType") {
-            if non_empty_str(Some(ct)).is_none() {
-                return Err(verr("contentType must be a non-empty string if present", Some("contentType")));
-            }
-        }
-        if let Some(ah) = j.get("allowlistHash") {
-            let ok = ah.as_str().map(|x| x.chars().count() == ALLOWLIST_HASH_B64_LEN).unwrap_or(false);
-            if !ok {
-                return Err(verr(
-                    format!(
-                        "allowlistHash must be exactly {ALLOWLIST_HASH_B64_LEN} base64 chars (SHA-256) if present"
-                    ),
-                    Some("allowlistHash"),
-                ));
-            }
-        }
-        if let Some(sch) = j.get("sessionContextHash") {
-            let value = sch.as_str().ok_or_else(|| {
+        if let Some(value) = j.get("sessionContextHash") {
+            let value = value.as_str().ok_or_else(|| {
                 verr(
                     "sessionContextHash must be a canonical base64 SHA-256 digest",
                     Some("sessionContextHash"),
                 )
             })?;
             Self::validate_session_context_hash(value)?;
+        }
+        if let Some(value) = j.get("validUntil") {
+            let value = value.as_str().ok_or_else(|| {
+                verr("validUntil must be a valid ISO 8601 timestamp string", Some("validUntil"))
+            })?;
+            Self::validate_valid_until(Some(value))?;
+        }
+        if let Some(tsa) = j.get("tsa") {
+            Self::validate_majik_timestamp_value_at(tsa, depth + 1)?;
         }
         Ok(())
     }
@@ -239,32 +394,19 @@ impl MajikSignatureValidator {
     // ── ExpectedSigner validator ─────────────────────────────────────────────
 
     pub fn validate_expected_signer_value(entry: &Value, index: Option<usize>) -> R {
-        let label = match index {
-            Some(i) => format!("allowlist[{i}]"),
-            None => "allowlist entry".to_string(),
-        };
+        let label = index.map(|i| format!("allowlist[{i}]")).unwrap_or_else(|| "allowlist entry".to_string());
         let e = entry.as_object().ok_or_else(|| verr(format!("{label} must be an object"), Some(&label)))?;
-        if non_empty_str(e.get("signerId")).is_none() {
-            return Err(verr(
-                format!("{label}.signerId must be a non-empty string"),
-                Some(&format!("{label}.signerId")),
-            ));
-        }
-        let short = |k: &str, min: usize| {
-            e.get(k).and_then(Value::as_str).map(|s| s.chars().count() < min).unwrap_or(true)
-        };
-        if short("edPublicKey", MIN_ED_PUBLIC_KEY_B64_LEN) {
-            return Err(verr(
-                format!("{label}.edPublicKey is too short to be a valid Ed25519 public key"),
-                Some(&format!("{label}.edPublicKey")),
-            ));
-        }
-        if short("mlDsaPublicKey", MIN_DSA_PUBLIC_KEY_B64_LEN) {
-            return Err(verr(
-                format!("{label}.mlDsaPublicKey is too short to be a valid ML-DSA-87 public key"),
-                Some(&format!("{label}.mlDsaPublicKey")),
-            ));
-        }
+        validate_canonical_base64(required_object_string(e, "signerId")?, SHA256_DIGEST_LEN, "signerId")?;
+        validate_canonical_base64(
+            required_object_string(e, "edPublicKey")?,
+            ED25519_PUBLIC_KEY_LEN,
+            "edPublicKey",
+        )?;
+        validate_canonical_base64(
+            required_object_string(e, "mlDsaPublicKey")?,
+            ML_DSA_87_PUBLIC_KEY_LEN,
+            "mlDsaPublicKey",
+        )?;
         Ok(())
     }
 
@@ -303,23 +445,23 @@ impl MajikSignatureValidator {
             ));
         }
         let Some(hash) = seal_hash else { return Ok(()) };
-        if hash.chars().count() != SEAL_HASH_HEX_LEN {
+        if hash.len() != SEAL_HASH_HEX_LEN || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(verr(
                 format!("sealHash must be exactly {SEAL_HASH_HEX_LEN} hex chars (SHA3-512)"),
                 Some("sealHash"),
             ));
         }
-        if !is_valid_date(seal_timestamp.unwrap_or_default()) {
+        if validate_timestamp(seal_timestamp.unwrap_or_default(), "sealTimestamp").is_err() {
             return Err(verr("sealTimestamp must be a valid ISO 8601 date string", Some("sealTimestamp")));
         }
-        if sealed_by.unwrap_or_default().trim().is_empty() {
+        if validate_bounded_string(sealed_by.unwrap_or_default(), MAX_SIGNER_ID_CHARS, "sealedBy").is_err() {
             return Err(verr("sealedBy must be a non-empty string", Some("sealedBy")));
         }
         Ok(())
     }
 
     pub fn validate_seal_hash(hash: &str) -> R {
-        if hash.chars().count() != SEAL_HASH_HEX_LEN {
+        if hash.len() != SEAL_HASH_HEX_LEN || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(verr(
                 format!("sealHash must be exactly {SEAL_HASH_HEX_LEN} hex chars (SHA3-512)"),
                 Some("sealHash"),
@@ -350,10 +492,8 @@ impl MajikSignatureValidator {
 
     pub fn validate_valid_until(value: Option<&str>) -> R {
         match value {
-            Some(v) if parse_iso_millis(v).is_none() => {
-                Err(verr("validUntil must be a valid ISO 8601 timestamp string", Some("validUntil")))
-            }
-            _ => Ok(()),
+            Some(v) => validate_timestamp(v, "validUntil"),
+            None => Ok(()),
         }
     }
 
@@ -362,26 +502,22 @@ impl MajikSignatureValidator {
     /// Validate untrusted envelope JSON.
     pub fn validate_multi_sig_envelope_value(env: &Value) -> R {
         let e = env.as_object().ok_or_else(|| verr("MultiSigEnvelope must be an object", None))?;
-
-        match e.get("version") {
-            Some(v) if v.as_u64() == Some(MAJIK_ENVELOPE_VERSION as u64) => {}
-            other => {
-                return Err(verr(
-                    format!(
-                        "Unsupported envelope version: {}",
-                        other.map(js_display).unwrap_or_else(|| "undefined".into())
-                    ),
-                    Some("version"),
-                ))
-            }
+        if e.get("version").and_then(Value::as_u64) != Some(MAJIK_ENVELOPE_VERSION as u64) {
+            return Err(verr("Unsupported envelope version", Some("version")));
         }
 
         let sigs = e
             .get("signatures")
             .and_then(Value::as_array)
             .ok_or_else(|| verr("MultiSigEnvelope.signatures must be an array", Some("signatures")))?;
-        for (i, s) in sigs.iter().enumerate() {
-            Self::validate_json_value(s).map_err(|err| {
+        if sigs.len() > MAX_SIGNATURES_PER_ENVELOPE {
+            return Err(verr(
+                format!("MultiSigEnvelope.signatures exceeds the limit of {MAX_SIGNATURES_PER_ENVELOPE}"),
+                Some("signatures"),
+            ));
+        }
+        for (i, sig) in sigs.iter().enumerate() {
+            Self::validate_json_value(sig).map_err(|err| {
                 MajikSignatureError::validation_with_cause(
                     format!("signatures[{i}] is invalid: {}", err.message()),
                     Some(&format!("signatures[{i}]")),
@@ -390,6 +526,11 @@ impl MajikSignatureValidator {
             })?;
         }
 
+        let has_allowlist = e.contains_key("allowlist");
+        let has_issuer = e.contains_key("allowlistSignerId");
+        if has_allowlist != has_issuer {
+            return Err(verr("allowlist and allowlistSignerId must be set together", Some("allowlist")));
+        }
         if let Some(al) = e.get("allowlist") {
             let arr = al.as_array().ok_or_else(|| {
                 verr("MultiSigEnvelope.allowlist must be an array if present", Some("allowlist"))
@@ -400,44 +541,75 @@ impl MajikSignatureValidator {
                     Some("allowlist"),
                 ));
             }
+            if arr.len() > MAX_ALLOWLIST_ENTRIES {
+                return Err(verr(
+                    format!("MultiSigEnvelope.allowlist exceeds the limit of {MAX_ALLOWLIST_ENTRIES}"),
+                    Some("allowlist"),
+                ));
+            }
             for (i, entry) in arr.iter().enumerate() {
                 Self::validate_expected_signer_value(entry, Some(i))?;
             }
-            if non_empty_str(e.get("allowlistSignerId")).is_none() {
-                return Err(verr(
-                    "MultiSigEnvelope.allowlistSignerId must be a non-empty string when allowlist is present",
+            let issuer = e.get("allowlistSignerId").and_then(Value::as_str).ok_or_else(|| {
+                verr(
+                    "MultiSigEnvelope.allowlistSignerId must be a non-empty string",
                     Some("allowlistSignerId"),
-                ));
-            }
+                )
+            })?;
+            validate_canonical_base64(issuer, SHA256_DIGEST_LEN, "allowlistSignerId")?;
         }
 
-        // Seal fields, validated structurally from the raw values.
-        let get_s = |k: &str| e.get(k).and_then(Value::as_str);
-        // A present-but-non-string seal field is "defined" yet invalid, as in TS.
-        let present = |k: &str| e.contains_key(k);
-        let count = ["sealHash", "sealTimestamp", "sealedBy"].iter().filter(|k| present(k)).count();
+        // Seal fields, validated structurally from raw JSON values.
+        let count = ["sealHash", "sealTimestamp", "sealedBy"].iter().filter(|k| e.contains_key(**k)).count();
         if count > 0 && count < 3 {
             return Err(verr(
                 "Seal is incomplete — sealHash, sealTimestamp, and sealedBy must all be present together",
                 Some("seal"),
             ));
         }
-        if present("sealHash") {
-            let hash_ok = get_s("sealHash").map(|h| h.chars().count() == SEAL_HASH_HEX_LEN).unwrap_or(false);
-            if !hash_ok {
+        if count == 3 {
+            let hash = e
+                .get("sealHash")
+                .and_then(Value::as_str)
+                .ok_or_else(|| verr("sealHash must be a hexadecimal SHA3-512 digest", Some("sealHash")))?;
+            Self::validate_seal_hash(hash)?;
+            let timestamp = e.get("sealTimestamp").and_then(Value::as_str).ok_or_else(|| {
+                verr("sealTimestamp must be a valid ISO 8601 date string", Some("sealTimestamp"))
+            })?;
+            validate_timestamp(timestamp, "sealTimestamp")?;
+            let sealed_by = e
+                .get("sealedBy")
+                .and_then(Value::as_str)
+                .ok_or_else(|| verr("sealedBy must be a non-empty string", Some("sealedBy")))?;
+            validate_bounded_string(sealed_by, MAX_SIGNER_ID_CHARS, "sealedBy")?;
+        }
+
+        if let Some(anchors) = e.get("chainAnchors") {
+            let arr = anchors
+                .as_array()
+                .ok_or_else(|| verr("chainAnchors must be an array when present", Some("chainAnchors")))?;
+            if arr.len() > MAX_CHAIN_ANCHORS {
                 return Err(verr(
-                    format!("sealHash must be exactly {SEAL_HASH_HEX_LEN} hex chars (SHA3-512)"),
-                    Some("sealHash"),
+                    format!("chainAnchors exceeds the limit of {MAX_CHAIN_ANCHORS}"),
+                    Some("chainAnchors"),
                 ));
             }
-            if !get_s("sealTimestamp").map(is_valid_date).unwrap_or(false) {
+            for (i, anchor) in arr.iter().enumerate() {
+                validate_anchor_value(anchor, i)?;
+            }
+        }
+        if let Some(versions) = e.get("fileVersions") {
+            let arr = versions
+                .as_array()
+                .ok_or_else(|| verr("fileVersions must be an array when present", Some("fileVersions")))?;
+            if arr.len() > MAX_FILE_VERSIONS {
                 return Err(verr(
-                    "sealTimestamp must be a valid ISO 8601 date string",
-                    Some("sealTimestamp"),
+                    format!("fileVersions exceeds the limit of {MAX_FILE_VERSIONS}"),
+                    Some("fileVersions"),
                 ));
             }
-            if get_s("sealedBy").map(|s| s.trim().is_empty()).unwrap_or(true) {
-                return Err(verr("sealedBy must be a non-empty string", Some("sealedBy")));
+            for (i, version) in arr.iter().enumerate() {
+                validate_file_version_value(version, i)?;
             }
         }
         Ok(())
@@ -466,25 +638,34 @@ impl MajikSignatureValidator {
                 return Err(verr("TSA payload digest scope must be content or signature", None));
             }
         }
-        let vlen = d.get("value").and_then(Value::as_str).map(|s| s.chars().count());
-        if vlen != Some(CONTENT_HASH_B64_LEN) {
-            return Err(verr("TSA payload digest value must be a 44-char base64 string", None));
-        }
-        let nonempty = |v: Option<&Value>| v.and_then(Value::as_str).map(|s| !s.is_empty()).unwrap_or(false);
-        if !nonempty(p.get("nonce")) {
-            return Err(verr("TSA payload missing nonce", None));
-        }
-        if !nonempty(p.get("timestamp")) {
-            return Err(verr("TSA payload missing timestamp", None));
-        }
-        let t =
+        let digest = d.get("value").and_then(Value::as_str).ok_or_else(|| {
+            verr("TSA payload digest value must be a canonical base64 SHA-256 digest", None)
+        })?;
+        validate_canonical_base64(digest, SHA256_DIGEST_LEN, "digest.value")?;
+
+        let nonce = p
+            .get("nonce")
+            .and_then(Value::as_str)
+            .ok_or_else(|| verr("TSA payload nonce must be a canonical base64 value", None))?;
+        validate_canonical_base64(nonce, 32, "nonce")?;
+        let timestamp = p
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .ok_or_else(|| verr("TSA payload timestamp is invalid", None))?;
+        validate_timestamp(timestamp, "timestamp")?;
+
+        let identity =
             p.get("tsa").and_then(Value::as_object).ok_or_else(|| verr("TSA payload missing tsa", None))?;
-        if !nonempty(t.get("id")) {
-            return Err(verr("TSA payload tsa.id missing", None));
-        }
-        if !nonempty(t.get("signerFingerprint")) {
-            return Err(verr("TSA payload tsa.signerFingerprint missing", None));
-        }
+        let id = identity
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| verr("TSA payload tsa.id missing", None))?;
+        validate_bounded_string(id, MAX_TSA_FIELD_CHARS, "tsa.id")?;
+        let fingerprint = identity
+            .get("signerFingerprint")
+            .and_then(Value::as_str)
+            .ok_or_else(|| verr("TSA payload tsa.signerFingerprint missing", None))?;
+        validate_canonical_base64(fingerprint, SHA256_DIGEST_LEN, "tsa.signerFingerprint")?;
         Ok(())
     }
 
@@ -496,15 +677,25 @@ impl MajikSignatureValidator {
     }
 
     pub fn validate_majik_timestamp_value(tsa: &Value) -> R {
+        Self::validate_majik_timestamp_value_at(tsa, 0)
+    }
+
+    fn validate_majik_timestamp_value_at(tsa: &Value, depth: usize) -> R {
+        if depth > MAX_TSA_SIGNATURE_NESTING {
+            return Err(verr(
+                format!("TSA signature nesting exceeds the maximum depth of {MAX_TSA_SIGNATURE_NESTING}"),
+                Some("tsa"),
+            ));
+        }
         let t = tsa.as_object().ok_or_else(|| verr("MajikTimestamp must be an object", None))?;
         if t.get("version").and_then(Value::as_u64) != Some(1) {
             return Err(verr("MajikTimestamp version must be 1", None));
         }
-        if t.get("id").and_then(Value::as_str).map(|s| s.is_empty()).unwrap_or(true) {
-            return Err(verr("MajikTimestamp missing id", None));
-        }
+        let id =
+            t.get("id").and_then(Value::as_str).ok_or_else(|| verr("MajikTimestamp missing id", None))?;
+        validate_bounded_string(id, MAX_TSA_FIELD_CHARS, "timestamp.id")?;
         Self::validate_majik_tsa_payload_value(t.get("payload").unwrap_or(&Value::Null))?;
-        Self::validate_json_value(t.get("signature").unwrap_or(&Value::Null))
+        Self::validate_json_value_at(t.get("signature").unwrap_or(&Value::Null), depth + 1)
     }
 
     pub fn validate_majik_timestamp(tsa: &MajikTimestamp) -> R {
@@ -512,14 +703,5 @@ impl MajikSignatureValidator {
             MajikSignatureError::serialization_with_cause("Failed to serialize MajikTimestamp", e)
         })?;
         Self::validate_majik_timestamp_value(&v)
-    }
-}
-
-/// Render a JSON value the way a JS template literal would (`${value}`).
-fn js_display(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Null => "null".into(),
-        other => other.to_string(),
     }
 }

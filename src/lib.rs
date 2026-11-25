@@ -41,3 +41,6 @@ pub use crate::core::payload::build_signature_attestation_bytes;
 pub use crate::core::payload::{build_signing_payload, build_tsa_canonical_bytes, PayloadFields};
 pub use crate::core::session_context::{build_session_context_hash, MajikSessionSigningContext};
 pub use crate::core::validator::MajikSignatureValidator;
+
+// ── Streaming content hashing ────────────────────────────────────────────────
+pub use crate::core::streaming::*;
