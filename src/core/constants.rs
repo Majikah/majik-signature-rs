@@ -57,6 +57,7 @@ pub const MAJIK_NOTARY_MEMO_DOMAIN: &str = "majik-notary-v-1:";
 
 // ─── Key / signature sizes (validated by `MajikSignatureValidator`) ──────────
 pub const ED25519_PUBLIC_KEY_LEN: usize = 32;
+pub const ED25519_SIGNATURE_LEN: usize = 64;
 pub const ED25519_SECRET_KEY_LEN: usize = 64;
 pub const ML_DSA_87_PUBLIC_KEY_LEN: usize = 2592;
 pub const ML_DSA_87_SECRET_KEY_LEN: usize = 4896;
