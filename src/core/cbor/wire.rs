@@ -15,7 +15,7 @@ use super::codec::CborError;
 use crate::anchor::types::{
     MajikChainAnchor, MajikChainAnchorDigest, MajikChainAnchorPayload, MajikChainAnchorStatus,
 };
-use crate::core::constants::{ED25519_PUBLIC_KEY_LEN, ML_DSA_87_PUBLIC_KEY_LEN, ML_DSA_87_SIGNATURE_LEN};
+use crate::core::constants::{ED25519_PUBLIC_KEY_LEN, ED25519_SIGNATURE_LEN, ML_DSA_87_PUBLIC_KEY_LEN, ML_DSA_87_SIGNATURE_LEN};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64};
 use crate::core::types::*;
 
@@ -25,7 +25,6 @@ type W<T> = Result<T, CborError>;
 const MAX_NESTING: usize = 8;
 const SHA256_LEN: usize = 32;
 const SHA3_512_LEN: usize = 64;
-const ED25519_SIGNATURE_LEN: usize = 64;
 /// Largest integer a JS `number` represents exactly (TS rejects anything beyond it).
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 /// CBOR tag for a `uint8` typed array (RFC 8746), as emitted by `cbor-x` for `Uint8Array`.
