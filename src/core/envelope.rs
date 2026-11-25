@@ -858,6 +858,7 @@ fn to_json_bytes<T: serde::Serialize + ?Sized>(v: &T) -> Vec<u8> {
 }
 
 fn validate_shape(obj: &Value) -> R<()> {
+    MajikSignatureValidator::validate_multi_sig_envelope_value(obj)?;
     let verr = |m: String, f: &str| MajikSignatureError::validation(m, Some(f));
     let o = obj.as_object().ok_or_else(|| {
         MajikSignatureError::serialization("Embedded signature payload must be a JSON object")

@@ -113,3 +113,5 @@ pub const MAX_CBOR_INPUT_BYTES: usize = MAX_ENVELOPE_BYTES;
 pub const MAX_CHAIN_ANCHORS: usize = 256;
 pub const MAX_FILE_VERSIONS: usize = 10_000;
 pub const MAX_FILE_VERSION_MESSAGE_CHARS: usize = 4_096;
+
+pub const MAX_TSA_SIGNATURE_NESTING: usize = 8;

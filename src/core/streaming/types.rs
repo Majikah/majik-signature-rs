@@ -27,7 +27,7 @@ pub struct StreamingHashOptions<'a> {
     pub on_progress: Option<&'a mut dyn FnMut(StreamingHashProgress)>,
 }
 
-impl Default for StreamingHashOptions<'_> {
+impl<'a> Default for StreamingHashOptions<'a> {
     fn default() -> Self {
         Self {
             chunk_size: super::config::DEFAULT_HASH_CHUNK_SIZE,

@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::core::constants::*;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64};
-use crate::core::time::{is_valid_date, parse_iso_millis};
+use crate::core::time::is_valid_date;
 use crate::core::types::{
     ExpectedSigner, MajikSignatureJSON, MajikSignerPublicKeys, MajikTimestamp, MajikTsaPayload,
     MultiSigEnvelope,
@@ -21,13 +21,18 @@ fn verr(message: impl Into<String>, field: Option<&str>) -> MajikSignatureError 
     MajikSignatureError::validation(message, field)
 }
 
-fn non_empty_str(v: Option<&Value>) -> Option<&str> {
-    match v {
-        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.as_str()),
-        _ => None,
-    }
-}
 
+
+fn required_object_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> R<&'a str> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| verr(format!("{field} must be a non-empty string"), Some(field)))
+}
 
 fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
@@ -83,15 +88,21 @@ fn validate_anchor_value(anchor: &Value, index: usize) -> R {
     if obj.get("version").and_then(Value::as_u64) != Some(1) {
         return Err(verr(format!("{label}.version must be 1"), Some("chainAnchors")));
     }
-    let string = |field: &str, max: usize| -> R<&str> {
-        let value = obj.get(field).and_then(Value::as_str)
-            .ok_or_else(|| verr(format!("{label}.{field} must be a string"), Some(field)))?;
-        validate_bounded_string(value, max, field)?;
-        Ok(value)
-    };
-    string("id", MAX_TSA_FIELD_CHARS)?;
-    string("memo", MAX_TSA_FIELD_CHARS)?;
-    string("txSignature", MAX_TSA_FIELD_CHARS)?;
+    validate_bounded_string(
+        required_object_string(obj, "id")?,
+        MAX_TSA_FIELD_CHARS,
+        "id",
+    )?;
+    validate_bounded_string(
+        required_object_string(obj, "memo")?,
+        MAX_TSA_FIELD_CHARS,
+        "memo",
+    )?;
+    validate_bounded_string(
+        required_object_string(obj, "txSignature")?,
+        MAX_TSA_FIELD_CHARS,
+        "txSignature",
+    )?;
 
     let payload = obj.get("payload").and_then(Value::as_object)
         .ok_or_else(|| verr(format!("{label}.payload must be an object"), Some("chainAnchors")))?;
@@ -279,6 +290,10 @@ impl MajikSignatureValidator {
 
     /// Validate untrusted JSON and, on success, deserialize it into a typed envelope.
     pub fn validate_json_value(json: &Value) -> R<()> {
+        Self::validate_json_value_at(json, 0)
+    }
+
+    fn validate_json_value_at(json: &Value, depth: usize) -> R<()> {
         let j = json.as_object().ok_or_else(|| verr("Signature JSON must be an object", None))?;
 
         match j.get("version") {
@@ -286,22 +301,13 @@ impl MajikSignatureValidator {
             _ => return Err(verr("Unsupported signature version", Some("version"))),
         }
 
-        let required = |field: &str| -> R<&str> {
-            let value = j.get(field).and_then(Value::as_str)
-                .ok_or_else(|| verr(format!("{field} must be a non-empty string"), Some(field)))?;
-            if value.is_empty() {
-                return Err(verr(format!("{field} must be a non-empty string"), Some(field)));
-            }
-            Ok(value)
-        };
-
-        validate_canonical_base64(required("signerId")?, SHA256_DIGEST_LEN, "signerId")?;
-        validate_canonical_base64(required("signerEdPublicKey")?, ED25519_PUBLIC_KEY_LEN, "signerEdPublicKey")?;
-        validate_canonical_base64(required("signerMlDsaPublicKey")?, ML_DSA_87_PUBLIC_KEY_LEN, "signerMlDsaPublicKey")?;
-        validate_canonical_base64(required("contentHash")?, SHA256_DIGEST_LEN, "contentHash")?;
-        validate_canonical_base64(required("edSignature")?, ED25519_SIGNATURE_LEN, "edSignature")?;
-        validate_canonical_base64(required("mlDsaSignature")?, ML_DSA_87_SIGNATURE_LEN, "mlDsaSignature")?;
-        validate_timestamp(required("timestamp")?, "timestamp")?;
+        validate_canonical_base64(required_object_string(j, "signerId")?, SHA256_DIGEST_LEN, "signerId")?;
+        validate_canonical_base64(required_object_string(j, "signerEdPublicKey")?, ED25519_PUBLIC_KEY_LEN, "signerEdPublicKey")?;
+        validate_canonical_base64(required_object_string(j, "signerMlDsaPublicKey")?, ML_DSA_87_PUBLIC_KEY_LEN, "signerMlDsaPublicKey")?;
+        validate_canonical_base64(required_object_string(j, "contentHash")?, SHA256_DIGEST_LEN, "contentHash")?;
+        validate_canonical_base64(required_object_string(j, "edSignature")?, ED25519_SIGNATURE_LEN, "edSignature")?;
+        validate_canonical_base64(required_object_string(j, "mlDsaSignature")?, ML_DSA_87_SIGNATURE_LEN, "mlDsaSignature")?;
+        validate_timestamp(required_object_string(j, "timestamp")?, "timestamp")?;
 
         if let Some(value) = j.get("contentType") {
             let value = value.as_str().ok_or_else(|| verr("contentType must be a string if present", Some("contentType")))?;
@@ -324,7 +330,7 @@ impl MajikSignatureValidator {
             Self::validate_valid_until(Some(value))?;
         }
         if let Some(tsa) = j.get("tsa") {
-            Self::validate_majik_timestamp_value(tsa)?;
+            Self::validate_majik_timestamp_value_at(tsa, depth + 1)?;
         }
         Ok(())
     }
@@ -342,13 +348,9 @@ impl MajikSignatureValidator {
     pub fn validate_expected_signer_value(entry: &Value, index: Option<usize>) -> R {
         let label = index.map(|i| format!("allowlist[{i}]")).unwrap_or_else(|| "allowlist entry".to_string());
         let e = entry.as_object().ok_or_else(|| verr(format!("{label} must be an object"), Some(&label)))?;
-        let field = |name: &str| -> R<&str> {
-            e.get(name).and_then(Value::as_str)
-                .ok_or_else(|| verr(format!("{label}.{name} must be a non-empty string"), Some(name)))
-        };
-        validate_canonical_base64(field("signerId")?, SHA256_DIGEST_LEN, "signerId")?;
-        validate_canonical_base64(field("edPublicKey")?, ED25519_PUBLIC_KEY_LEN, "edPublicKey")?;
-        validate_canonical_base64(field("mlDsaPublicKey")?, ML_DSA_87_PUBLIC_KEY_LEN, "mlDsaPublicKey")?;
+        validate_canonical_base64(required_object_string(e, "signerId")?, SHA256_DIGEST_LEN, "signerId")?;
+        validate_canonical_base64(required_object_string(e, "edPublicKey")?, ED25519_PUBLIC_KEY_LEN, "edPublicKey")?;
+        validate_canonical_base64(required_object_string(e, "mlDsaPublicKey")?, ML_DSA_87_PUBLIC_KEY_LEN, "mlDsaPublicKey")?;
         Ok(())
     }
 
@@ -460,7 +462,7 @@ impl MajikSignatureValidator {
             Self::validate_json_value(sig).map_err(|err| {
                 MajikSignatureError::validation_with_cause(
                     format!("signatures[{i}] is invalid: {}", err.message()),
-                    Some(&format!("signatures[{i}]"),
+                    Some(&format!("signatures[{i}]")),
                     err,
                 )
             })?;
@@ -587,6 +589,16 @@ impl MajikSignatureValidator {
     }
 
     pub fn validate_majik_timestamp_value(tsa: &Value) -> R {
+        Self::validate_majik_timestamp_value_at(tsa, 0)
+    }
+
+    fn validate_majik_timestamp_value_at(tsa: &Value, depth: usize) -> R {
+        if depth > MAX_TSA_SIGNATURE_NESTING {
+            return Err(verr(
+                format!("TSA signature nesting exceeds the maximum depth of {MAX_TSA_SIGNATURE_NESTING}"),
+                Some("tsa"),
+            ));
+        }
         let t = tsa.as_object().ok_or_else(|| verr("MajikTimestamp must be an object", None))?;
         if t.get("version").and_then(Value::as_u64) != Some(1) {
             return Err(verr("MajikTimestamp version must be 1", None));
@@ -595,7 +607,7 @@ impl MajikSignatureValidator {
             .ok_or_else(|| verr("MajikTimestamp missing id", None))?;
         validate_bounded_string(id, MAX_TSA_FIELD_CHARS, "timestamp.id")?;
         Self::validate_majik_tsa_payload_value(t.get("payload").unwrap_or(&Value::Null))?;
-        Self::validate_json_value(t.get("signature").unwrap_or(&Value::Null))
+        Self::validate_json_value_at(t.get("signature").unwrap_or(&Value::Null), depth + 1)
     }
 
     pub fn validate_majik_timestamp(tsa: &MajikTimestamp) -> R {
@@ -606,11 +618,3 @@ impl MajikSignatureValidator {
     }
 }
 
-/// Render a JSON value the way a JS template literal would (`${value}`).
-fn js_display(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Null => "null".into(),
-        other => other.to_string(),
-    }
-}
