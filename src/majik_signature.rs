@@ -18,6 +18,7 @@ use fips204::traits::{SerDes as _, Signer as _, Verifier as _};
 use jiff::Timestamp;
 use majik_key::{KeyId, MajikKey};
 use serde_json::Value;
+use std::io::Read;
 use zeroize::Zeroizing;
 
 use crate::anchor::types::MajikChainAnchorMemo;
@@ -29,6 +30,7 @@ use crate::core::payload::{
     build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
 };
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
+use crate::core::streaming::{hash_reader, StreamingHashOptions};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
 
@@ -177,10 +179,43 @@ impl MajikSignature {
     /// `valid_until` and `version_chain_hash` (when given) are part of that payload, so a
     /// verifier cannot strip or alter them without invalidating the signature.
     pub fn sign(content: &[u8], key: &MajikKey, options: Option<&SignOptions>) -> R<MajikSignature> {
+        MajikSignatureValidator::validate_content(content)?;
+        Self::sign_digest(hash_content(content), key, options)
+    }
+
+    /// Sign bytes from a reader without materializing the complete input.
+    /// The resulting contentHash is identical to sign() over the same bytes.
+    pub fn sign_reader<Rd: Read>(
+        reader: &mut Rd,
+        key: &MajikKey,
+        options: Option<&SignOptions>,
+    ) -> R<MajikSignature> {
+        let mut streaming = StreamingHashOptions::default();
+        Self::sign_reader_with_options(reader, key, options, &mut streaming)
+    }
+
+    /// Configurable reader-based signing with progress, cancellation and input limits.
+    pub fn sign_reader_with_options<Rd: Read>(
+        reader: &mut Rd,
+        key: &MajikKey,
+        options: Option<&SignOptions>,
+        streaming: &mut StreamingHashOptions<'_>,
+    ) -> R<MajikSignature> {
+        let result = hash_reader(reader, streaming)?;
+        if result.bytes_processed == 0 {
+            MajikSignatureValidator::validate_content(&[])?;
+        }
+        Self::sign_digest(result.digest, key, options)
+    }
+
+    fn sign_digest(
+        content_hash_bytes: [u8; 32],
+        key: &MajikKey,
+        options: Option<&SignOptions>,
+    ) -> R<MajikSignature> {
         let default_opts = SignOptions::default();
         let options = options.unwrap_or(&default_opts);
 
-        MajikSignatureValidator::validate_content(content)?;
         MajikSignatureValidator::validate_content_type(options.content_type.as_deref())?;
         MajikSignatureValidator::validate_valid_until(options.valid_until.as_deref())?;
         if let Some(session_hash) = options.session_context_hash.as_deref() {
@@ -196,7 +231,6 @@ impl MajikSignature {
             ));
         }
 
-        // Secret material is held in Zeroizing buffers and wiped on every exit path.
         let ed_secret = key
             .get_private_key(KeyId::Ed25519)
             .map_err(|e| MajikSignatureError::key_with_cause("Failed to read Ed25519 secret key", e))?;
@@ -213,7 +247,7 @@ impl MajikSignature {
             .get_public_key(KeyId::MlDsa87)
             .map_err(|e| MajikSignatureError::key_with_cause("Failed to read ML-DSA-87 public key", e))?;
 
-        let content_hash = bytes_to_base64(&hash_content(content));
+        let content_hash = bytes_to_base64(&content_hash_bytes);
         let timestamp = options.timestamp.clone().unwrap_or_else(now_iso);
         let signer_id = key.fingerprint().to_string();
 
@@ -228,7 +262,6 @@ impl MajikSignature {
             session_context_hash: options.session_context_hash.as_deref(),
         });
 
-        // Ed25519 — the stored secret key is seed ‖ public (64 bytes); the seed is the first half.
         let ed_sig_bytes = {
             let mut seed = Zeroizing::new([0u8; 32]);
             seed.copy_from_slice(&ed_secret[..32]);
@@ -236,7 +269,6 @@ impl MajikSignature {
             signing_key.sign(&payload).to_bytes()
         };
 
-        // ML-DSA-87 (FIPS 204, pure / empty context, hedged signing).
         let ml_dsa_sig_bytes = {
             let mut sk_bytes = Zeroizing::new([0u8; ML_DSA_87_SECRET_KEY_LEN]);
             sk_bytes.copy_from_slice(&ml_dsa_secret);
@@ -283,6 +315,41 @@ impl MajikSignature {
         now: Option<Timestamp>,
     ) -> R<VerificationResult> {
         MajikSignatureValidator::validate_content(content)?;
+        Self::verify_digest_bytes(hash_content(content), signature, public_keys, now)
+    }
+
+    /// Verify reader content without materializing the complete input.
+    pub fn verify_reader<S: SignatureLike + ?Sized, Rd: Read>(
+        reader: &mut Rd,
+        signature: &S,
+        public_keys: &MajikSignerPublicKeys,
+        now: Option<Timestamp>,
+    ) -> R<VerificationResult> {
+        let mut streaming = StreamingHashOptions::default();
+        Self::verify_reader_with_options(reader, signature, public_keys, now, &mut streaming)
+    }
+
+    /// Configurable reader-based verification with progress, cancellation and input limits.
+    pub fn verify_reader_with_options<S: SignatureLike + ?Sized, Rd: Read>(
+        reader: &mut Rd,
+        signature: &S,
+        public_keys: &MajikSignerPublicKeys,
+        now: Option<Timestamp>,
+        streaming: &mut StreamingHashOptions<'_>,
+    ) -> R<VerificationResult> {
+        let result = hash_reader(reader, streaming)?;
+        if result.bytes_processed == 0 {
+            MajikSignatureValidator::validate_content(&[])?;
+        }
+        Self::verify_digest_bytes(result.digest, signature, public_keys, now)
+    }
+
+    fn verify_digest_bytes<S: SignatureLike + ?Sized>(
+        digest: [u8; 32],
+        signature: &S,
+        public_keys: &MajikSignerPublicKeys,
+        now: Option<Timestamp>,
+    ) -> R<VerificationResult> {
         MajikSignatureValidator::validate_signer_public_keys(public_keys)?;
         let env = signature.to_signature_json();
         MajikSignatureValidator::validate_json(&env)?;
@@ -307,13 +374,12 @@ impl MajikSignature {
             return Ok(invalid(Some("Supplied signer public keys do not match the signature record".into())));
         }
 
-        let recomputed = bytes_to_base64(&hash_content(content));
+        let recomputed = bytes_to_base64(&digest);
         if recomputed != env.content_hash {
             return Ok(invalid(None));
         }
 
         let payload = payload_for(&env);
-
         if let Some(reason) = check_crypto(&env, public_keys, &payload) {
             return Ok(invalid(Some(reason)));
         }
@@ -339,70 +405,6 @@ impl MajikSignature {
             content_type: env.content_type,
             session_context_hash: env.session_context_hash,
             ..Default::default()
-        })
-    }
-
-    /// Verify the cryptographic signatures of an envelope WITHOUT checking them against any
-    /// content — used to validate a revision's commitment (`versionChainHash`) in isolation.
-    pub fn verify_commitment<S: SignatureLike + ?Sized>(
-        signature: &S,
-        public_keys: &MajikSignerPublicKeys,
-        now: Option<Timestamp>,
-    ) -> R<RevisionCommitmentResult> {
-        MajikSignatureValidator::validate_signer_public_keys(public_keys)?;
-        let env = signature.to_signature_json();
-        MajikSignatureValidator::validate_json(&env)?;
-
-        let invalid = |reason: Option<String>| RevisionCommitmentResult {
-            base: VerificationResult {
-                valid: false,
-                signer_id: Some(env.signer_id.clone()),
-                content_hash: Some(env.content_hash.clone()),
-                timestamp: env.timestamp.clone(),
-                content_type: env.content_type.clone(),
-                session_context_hash: env.session_context_hash.clone(),
-                reason,
-                ..Default::default()
-            },
-            commitment_only: true,
-        };
-
-        if public_keys.signer_id != env.signer_id {
-            return Ok(invalid(Some("Signer key fingerprint does not match signature signerId".into())));
-        }
-        if bytes_to_base64(&public_keys.ed_public_key) != env.signer_ed_public_key
-            || bytes_to_base64(&public_keys.ml_dsa_public_key) != env.signer_ml_dsa_public_key
-        {
-            return Ok(invalid(Some("Supplied signer public keys do not match the signature record".into())));
-        }
-
-        let payload = payload_for(&env);
-        if let Some(reason) = check_crypto(&env, public_keys, &payload) {
-            return Ok(invalid(Some(reason)));
-        }
-
-        if let Some(vu) = env.valid_until.as_deref().and_then(parse_iso_millis) {
-            if resolve_now(now).as_millisecond() > vu {
-                let mut r = invalid(Some(format!(
-                    "Signature expired at {}",
-                    env.valid_until.as_deref().unwrap_or_default()
-                )));
-                r.base.expired = Some(true);
-                return Ok(r);
-            }
-        }
-
-        Ok(RevisionCommitmentResult {
-            base: VerificationResult {
-                valid: true,
-                signer_id: Some(env.signer_id),
-                content_hash: Some(env.content_hash),
-                timestamp: env.timestamp,
-                content_type: env.content_type,
-                session_context_hash: env.session_context_hash,
-                ..Default::default()
-            },
-            commitment_only: true,
         })
     }
 
