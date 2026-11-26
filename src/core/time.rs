@@ -25,10 +25,10 @@ pub fn parse_iso_millis(s: &str) -> Option<i64> {
         return Some(ts.as_millisecond());
     }
     if let Ok(dt) = s.parse::<civil::DateTime>() {
-        return dt.to_zoned(TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
+        return dt.to_zoned_datetime(TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
     }
     if let Ok(d) = s.parse::<civil::Date>() {
-        return d.to_zoned(TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
+        return d.to_zoned_datetime(TimeZone::UTC).ok().map(|z| z.timestamp().as_millisecond());
     }
     None
 }
@@ -41,4 +41,20 @@ pub fn is_valid_date(s: &str) -> bool {
 /// `now.getTime()`; `None` means "the current time".
 pub fn resolve_now(now: Option<Timestamp>) -> Timestamp {
     now.unwrap_or_else(Timestamp::now)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::parse_iso_millis;
+
+    #[test]
+    fn parses_naive_datetime_as_utc() {
+        assert_eq!(parse_iso_millis("2024-01-02T03:04:05"), Some(1_704_164_645_000));
+    }
+
+    #[test]
+    fn parses_date_as_utc_midnight() {
+        assert_eq!(parse_iso_millis("2024-01-02"), Some(1_704_153_600_000));
+    }
 }

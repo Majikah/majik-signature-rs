@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Upgrade Jiff to 1.0.3, migrate civil date/time conversions to `to_zoned_datetime`, and retain UTC parsing semantics.
 - Add explicit SignRoom FileVersion commitments and bind no-revision session signatures to the existing revision-chain hash without appending a new version.
 - Validate explicit revision order, previous-entry linkage, creator fingerprint, canonical timestamp, and document content digest before signing.
 - Add session-aware detached-file signing and strict per-participant SignRoom verification APIs, including MJKSIG sidecar output, revision-chain checks, allowlist/seal integrity, and optional pinned TSA verification.
