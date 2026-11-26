@@ -43,7 +43,6 @@ pub fn resolve_now(now: Option<Timestamp>) -> Timestamp {
     now.unwrap_or_else(Timestamp::now)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::parse_iso_millis;
