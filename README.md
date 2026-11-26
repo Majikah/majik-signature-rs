@@ -292,7 +292,7 @@ Please read these before relying on cross-implementation behaviour.
 
 - Office/ODF canonical-form checks compare re-zipped bytes: they match TS only for archives *produced by this handler or by TS fflate stored-mode* (any file that went through another zip tool is re-zipped on `strip`, as in TS).
 - An allowlist hash is computed from the struct field order; envelopes whose JSON keys arrive in a different order hash differently than TS would for that raw JSON.
-- Dependencies are pinned to the same major versions as `majik-key 1.0.0`; Rust ≥ 1.85 recommended.
+- The dependency graph is aligned with `majik-key 1.2.0`; Rust ≥ 1.88 is required.
 
 ## Testing
 
