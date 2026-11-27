@@ -90,19 +90,6 @@ impl Write for BoundedWriter {
     }
 }
 
-fn serialize_map_payload(data: &MjksMapJSON) -> R<Vec<u8>> {
-    let mut writer = BoundedWriter::new(MAX_MJKSMAP_BYTES);
-    if let Err(error) = serde_json::to_writer(&mut writer, data) {
-        let message = if writer.exceeded {
-            format!("MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes")
-        } else {
-            format!("Failed to serialize MJKSMAP payload: {error}")
-        };
-        return Err(MajikSignatureError::serialization_with_cause(message, error));
-    }
-    Ok(writer.bytes)
-}
-
 
 fn cbor_text(value: &str) -> CborValue {
     CborValue::Text(value.to_string())
@@ -214,6 +201,19 @@ fn mjksmap_to_cbor(data: &MjksMapJSON) -> R<CborValue> {
         (cbor_text("createdAt"), cbor_text(&data.created_at)),
         (cbor_text("entries"), CborValue::Array(entries)),
     ]))
+}
+
+/// Validate that the JSON model fits in the actual CBOR wire-format budget.
+fn validate_mjksmap_cbor_size(data: &MjksMapJSON) -> R<()> {
+    let wire = mjksmap_to_cbor(data)?;
+    encode_cbor(&wire)
+        .map(|_| ())
+        .map_err(|error| {
+            MajikSignatureError::serialization_with_cause(
+                "MJKSMAP CBOR payload exceeds the maximum supported size or is invalid",
+                error,
+            )
+        })
 }
 
 /// Decode the CBOR-native manifest into the unchanged JSON-compatible model.
@@ -465,7 +465,7 @@ impl MajikSignatureMap {
             ));
         }
         let data = MjksMapJSON { version: self.version, created_at: self.created_at.clone(), entries };
-        serialize_map_payload(&data)?;
+        validate_mjksmap_cbor_size(&data)?;
         Ok(Self::new(data))
     }
 
@@ -598,9 +598,9 @@ impl MajikSignatureMap {
     }
 
     pub fn from_json_str(json: &str) -> R<MajikSignatureMap> {
-        if json.len() > MAX_MJKSMAP_BYTES {
+        if json.len() > MAX_MJKSMAP_JSON_BYTES {
             return Err(MajikSignatureError::serialization(format!(
-                "MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes"
+                "MJKSMAP JSON model exceeds the maximum supported size of {MAX_MJKSMAP_JSON_BYTES} bytes"
             )));
         }
         let parsed: Value = serde_json::from_str(json).map_err(|e| {
@@ -612,10 +612,10 @@ impl MajikSignatureMap {
     pub fn from_json_value(parsed: Value) -> R<MajikSignatureMap> {
         // Serialize through a bounded writer before constructing lookup indices.
         // This also protects callers that pass a large in-memory Value directly.
-        let mut writer = BoundedWriter::new(MAX_MJKSMAP_BYTES);
+        let mut writer = BoundedWriter::new(MAX_MJKSMAP_JSON_BYTES);
         if let Err(error) = serde_json::to_writer(&mut writer, &parsed) {
             let message = if writer.exceeded {
-                format!("MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes")
+                format!("MJKSMAP JSON model exceeds the maximum supported size of {MAX_MJKSMAP_JSON_BYTES} bytes")
             } else {
                 format!("Failed to serialize MJKSMAP input: {error}")
             };
@@ -627,7 +627,7 @@ impl MajikSignatureMap {
         let entries = validate_shape(obj)?;
         let created_at = obj.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string();
         let data = MjksMapJSON { version: MJKSMAP_VERSION, created_at, entries };
-        serialize_map_payload(&data)?;
+        validate_mjksmap_cbor_size(&data)?;
         Ok(Self::new(data))
     }
 
