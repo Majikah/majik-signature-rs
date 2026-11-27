@@ -291,6 +291,11 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Immutable, path-indexed batch manifest of file hashes and detached signature envelopes.
+///
+/// The map resolves files and compares content hashes; it does not authenticate
+/// paths or verify nested signatures. New binary output uses MJKSMAP v2 CBOR,
+/// while legacy v1 JSON containers remain readable.
 pub struct MajikSignatureMap {
     version: u8,
     created_at: String,
@@ -320,25 +325,31 @@ impl MajikSignatureMap {
 
     // ── Getters ──────────────────────────────────────────────────────────────
 
+    /// Return the logical manifest schema version, independent of container encoding.
     pub fn version(&self) -> u8 {
         self.version
     }
+    /// Return the manifest creation timestamp.
     pub fn created_at(&self) -> &str {
         &self.created_at
     }
+    /// Return the read-only manifest entries in insertion order.
     pub fn entries(&self) -> &[MjksMapEntry] {
         &self.entries
     }
+    /// Return the number of file entries in the manifest.
     pub fn size(&self) -> usize {
         self.entries.len()
     }
 
     // ── Lookup ───────────────────────────────────────────────────────────────
 
+    /// Look up an entry by its normalized path without comparing file content.
     pub fn get_entry(&self, path: &str) -> Option<&MjksMapEntry> {
         self.by_path.get(&normalize_path(path)).map(|&i| &self.entries[i])
     }
 
+    /// Check whether the normalized path exists in the manifest.
     pub fn has_entry(&self, path: &str) -> bool {
         self.by_path.contains_key(&normalize_path(path))
     }
@@ -367,6 +378,7 @@ impl MajikSignatureMap {
             .unwrap_or_default()
     }
 
+    /// Resolve a file by path and hash, distinguishing path match, path tampering, relocation, and absence.
     pub fn resolve_entry(&self, path: &str, file: &[u8]) -> MjksMapResolveResult {
         let direct = self.find_entry(path, file);
         if direct.found {
@@ -391,6 +403,7 @@ impl MajikSignatureMap {
         MjksMapResolveResult { status: MjksMapResolveStatus::NotFound, entry: None, original_path: None }
     }
 
+    /// Parse the envelope associated with a path; this does not verify its signer records.
     pub fn get_envelope(&self, path: &str) -> R<Option<MajikSignatureEnvelope>> {
         match self.get_entry(path) {
             Some(e) => Ok(Some(MajikSignatureEnvelope::from_json(&e.envelope)?)),
@@ -398,6 +411,7 @@ impl MajikSignatureMap {
         }
     }
 
+    /// Parse all entry envelopes and return each alongside its normalized path.
     pub fn get_all_envelopes(&self) -> R<Vec<(String, MajikSignatureEnvelope)>> {
         self.entries
             .iter()
@@ -434,6 +448,7 @@ impl MajikSignatureMap {
         Ok(Self::new(data))
     }
 
+    /// Return a new map without the normalized path; the original instance is unchanged.
     pub fn without_entry(&self, path: &str) -> MajikSignatureMap {
         let normalized = normalize_path(path);
         Self::new(MjksMapJSON {
@@ -445,6 +460,7 @@ impl MajikSignatureMap {
 
     // ── Serialization ────────────────────────────────────────────────────────
 
+    /// Return the schema-v1 logical JSON model as an owned snapshot.
     pub fn to_json(&self) -> MjksMapJSON {
         MjksMapJSON {
             version: self.version,
@@ -472,6 +488,7 @@ impl MajikSignatureMap {
         self.to_mjksmap_bytes()
     }
 
+    /// Parse a bounded MJKSMAP v1 JSON or v2 CBOR container according to its header version.
     pub fn from_mjksmap(raw: &[u8]) -> R<MajikSignatureMap> {
         if raw.len() > MAX_MJKSMAP_BYTES + MJKSMAP_HEADER_LEN {
             return Err(MajikSignatureError::serialization(format!(
@@ -548,16 +565,19 @@ impl MajikSignatureMap {
         }
     }
 
+    /// Check the MJKSMAP magic prefix only; this does not validate the container body.
     pub fn is_mjksmap(input: &[u8]) -> bool {
         input.len() >= MJKSMAP_MAGIC_LEN && input[..MJKSMAP_MAGIC_LEN] == MJKSMAP_MAGIC
     }
 
     // ── Factories ────────────────────────────────────────────────────────────
 
+    /// Create an empty manifest with logical schema version 1.
     pub fn empty() -> Self {
         Self::new(MjksMapJSON { version: MJKSMAP_SCHEMA_VERSION, created_at: now_iso(), entries: Vec::new() })
     }
 
+    /// Parse and validate a JSON string representing the schema-v1 logical manifest.
     pub fn from_json_str(json: &str) -> R<MajikSignatureMap> {
         if json.len() > MAX_MJKSMAP_JSON_BYTES {
             return Err(MajikSignatureError::serialization(format!(
@@ -570,6 +590,7 @@ impl MajikSignatureMap {
         Self::from_json_value(parsed)
     }
 
+    /// Validate an untrusted JSON value and construct bounded lookup indices.
     pub fn from_json_value(parsed: Value) -> R<MajikSignatureMap> {
         // Serialize through a bounded writer before constructing lookup indices.
         // This also protects callers that pass a large in-memory Value directly.
@@ -594,16 +615,19 @@ impl MajikSignatureMap {
         Ok(Self::new(data))
     }
 
+    /// Validate a typed logical manifest and construct its immutable lookup indices.
     pub fn from_json(json: &MjksMapJSON) -> R<MajikSignatureMap> {
         let v = serde_json::to_value(json)
             .map_err(|e| MajikSignatureError::serialization_with_cause("Failed to serialize MJKSMAP", e))?;
         Self::from_json_value(v)
     }
 
+    /// Re-run path, metadata, and envelope-shape validation; file signatures are not verified here.
     pub fn validate(&self) -> R<()> {
         Self::from_json(&self.to_json()).map(|_| ())
     }
 
+    /// Return whether the manifest passes structural validation without returning an error.
     pub fn is_valid(&self) -> bool {
         self.validate().is_ok()
     }
