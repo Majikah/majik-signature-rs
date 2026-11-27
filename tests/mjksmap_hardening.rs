@@ -139,7 +139,6 @@ fn writes_cbor_v2_and_reads_legacy_json_v1() {
     assert_eq!(restored.to_json(), map.to_json());
 }
 
-
 #[test]
 fn encodes_manifest_and_nested_signature_binary_fields_as_cbor_byte_strings() {
     let key = new_key("mjksmap-cbor-native");
@@ -215,7 +214,6 @@ fn encodes_manifest_and_nested_signature_binary_fields_as_cbor_byte_strings() {
     let restored = MajikSignatureMap::from_mjksmap(&bytes).unwrap();
     assert_eq!(restored.to_json(), map.to_json());
 }
-
 
 #[test]
 fn accepts_cbor_x_tag_64_for_manifest_binary_fields() {
