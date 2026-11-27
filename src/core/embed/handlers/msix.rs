@@ -9,6 +9,7 @@ use crate::core::types::FormatHandler;
 const MSIX_MIME_TYPES: &[&str] = &["application/msix", "application/appx"];
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in MSIX packages.
 pub struct MsixHandler;
 
 fn is_zip(bytes: &[u8]) -> bool {
