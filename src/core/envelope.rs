@@ -428,6 +428,17 @@ impl MajikSignatureEnvelope {
                 Some("allowlist"),
             ));
         }
+        if allowlist.len() > MAX_ALLOWLIST_ENTRIES {
+            return Err(MajikSignatureError::validation(
+                format!("Allowlist exceeds the limit of {MAX_ALLOWLIST_ENTRIES}"),
+                Some("allowlist"),
+            ));
+        }
+        for (index, entry) in allowlist.iter().enumerate() {
+            MajikSignatureValidator::validate_expected_signer(entry, Some(index))?;
+        }
+        MajikSignatureValidator::validate_sha256_digest(signer_id, "allowlistSignerId")?;
+
         let mut next = self.data.clone();
         next.allowlist = Some(allowlist.to_vec());
         next.allowlist_signer_id = Some(signer_id.to_string());
@@ -446,6 +457,18 @@ impl MajikSignatureEnvelope {
                 self.data.allowlist_signer_id.as_deref().unwrap_or("undefined"),
                 sealed_by
             )));
+        }
+        if sealed_by.trim().is_empty()
+            || sealed_by.encode_utf16().count() > MAX_SIGNER_ID_CHARS
+            || sealed_by.chars().any(|ch| (ch as u32) <= 0x1f || ch == '\u{7f}')
+        {
+            return Err(MajikSignatureError::validation(
+                format!("sealedBy must be a non-empty string of at most {MAX_SIGNER_ID_CHARS} characters without control characters"),
+                Some("sealedBy"),
+            ));
+        }
+        if let Some(timestamp) = seal_timestamp {
+            MajikSignatureValidator::validate_timestamp_for_signing(timestamp)?;
         }
         let ts = seal_timestamp.map(str::to_string).unwrap_or_else(now_iso);
         let seal_hash = self.compute_seal_hash(&ts);
