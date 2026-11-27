@@ -503,6 +503,7 @@ fn cosign_folder_map(
     ))
 }
 
+/// Execute the CLI signing workflow for a file or batch and return a structured result.
 pub fn run_sign(o: &SignCliOptions) -> CliOutcome<CliResult> {
     let input = resolve_cli_path(&o.input);
     let kind = get_path_kind(&input)?;
@@ -827,6 +828,7 @@ fn verify_map_folder(
     ))
 }
 
+/// Execute CLI verification and return per-file signer results and an aggregate summary.
 pub fn run_verify(o: &VerifyCliOptions) -> CliOutcome<CliResult> {
     let input = resolve_cli_path(&o.input);
     let kind = get_path_kind(&input)?;
@@ -865,6 +867,7 @@ fn is_detached_ext(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("mjksig")).unwrap_or(false)
 }
 
+/// Seal the embedded envelope in the requested file and describe the output.
 pub fn run_seal(o: &SealCliOptions) -> CliOutcome<CliResult> {
     let input = resolve_cli_path(&o.input);
     assert_kind(get_path_kind(&input)?, PathKind::File)?;
@@ -899,6 +902,7 @@ pub fn run_seal(o: &SealCliOptions) -> CliOutcome<CliResult> {
     outcome
 }
 
+/// Evaluate whether a key satisfies an embedded envelope's signing policy without signing.
 pub fn run_can_sign(o: &CanSignCliOptions) -> CliOutcome<CliResult> {
     let input = resolve_cli_path(&o.input);
     assert_kind(get_path_kind(&input)?, PathKind::File)?;
@@ -921,6 +925,7 @@ pub fn run_can_sign(o: &CanSignCliOptions) -> CliOutcome<CliResult> {
     outcome
 }
 
+/// Extract and summarize envelope metadata without treating its presence as cryptographic verification.
 pub fn run_inspect(o: &InspectCliOptions) -> CliOutcome<CliResult> {
     let input = resolve_cli_path(&o.input);
     assert_kind(get_path_kind(&input)?, PathKind::File)?;
