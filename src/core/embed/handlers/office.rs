@@ -36,6 +36,7 @@ fn is_zip(bytes: &[u8]) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in Office/ODF ZIP packages.
 pub struct OfficeHandler;
 
 impl FormatHandler for OfficeHandler {
