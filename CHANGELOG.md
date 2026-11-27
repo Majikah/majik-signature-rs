@@ -9,7 +9,7 @@
 - Preserve existing `.mjksmap` / `.mjksig` batch result formats for streaming inputs.
 - Add `MajikSignature::verify_files_from_mjksmap_stream()` with single-pass digest verification, path-first tamper detection, and content-hash relocation.
 - Cover both MJKSMAP and separate MJKSIG output modes in streaming batch signing tests.
-- Bound MJKSMAP payloads to 16 MiB, entries to 10,000, and normalized paths to 4,096 UTF-16 code units; reject traversal, spoofing controls, duplicate normalized paths, malformed UTF-8, trailing bytes, and invalid header fields.
+- Bound MJKSMAP payloads to 16 MiB, entries to 10,000, and normalized paths to 4,096 UTF-16 code units; reject traversal, spoofing controls, duplicate normalized paths, malformed UTF-8, trailing bytes, invalid header fields, and file sizes above JavaScript's safe-integer range.
 - Apply the 16 MiB envelope ceiling to typed objects and immutable builders; reject oversized Base64 before decoding and validate builder-supplied signatures, allowlists, seals, anchors, and revision metadata.
 - Add virtual 32 MiB multi-chunk stress tests and an opt-in 10 GiB reader stress test, plus read-failure and invalid chunk configuration regressions.
 
