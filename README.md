@@ -233,7 +233,7 @@ Large-content signing and verification are available through reader-based APIs:
 MajikSignature::sign_reader and MajikSignature::verify_reader. Use the
 *_with_options variants to configure the bounded read buffer, an optional byte
 ceiling, progress callbacks, and cancellation. The default chunk size is 1 MiB,
-with a configurable range of 64 KiB–128 MiB. Chunk boundaries are not included
+with a configurable range of 64 KiB–256 MiB. Chunk boundaries are not included
 in the digest: streaming uses one continuous SHA-256 state and produces the same
 32-byte content hash as the existing in-memory APIs.
 
