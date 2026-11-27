@@ -357,7 +357,6 @@ fn ed25519_scalar_malleability_is_rejected() {
     assert!(!result.valid);
 }
 
-
 struct RepeatingReader {
     remaining: u64,
     pattern: Vec<u8>,
@@ -406,13 +405,7 @@ fn hashes_virtual_large_files_with_multiple_chunk_sizes_without_full_file_alloca
         .collect();
     let expected = expected_repeating_digest(total_bytes, &pattern);
 
-    for chunk_size in [
-        MIN_HASH_CHUNK_SIZE,
-        256 * 1024,
-        1024 * 1024,
-        4 * 1024 * 1024,
-        16 * 1024 * 1024,
-    ] {
+    for chunk_size in [MIN_HASH_CHUNK_SIZE, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024] {
         let mut reader = RepeatingReader::new(total_bytes, pattern.clone());
         let mut options = StreamingHashOptions {
             chunk_size,
