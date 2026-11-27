@@ -1523,6 +1523,7 @@ impl MajikSignature {
         let chunk_size = streaming.chunk_size;
         let max_bytes_per_file = streaming.max_bytes_per_file;
         let cancellation = streaming.cancellation;
+        let total_files = files.len();
 
         for (file_index, file) in files.iter_mut().enumerate() {
             let path = file.path.clone();
@@ -1547,7 +1548,7 @@ impl MajikSignature {
                     if let Some(callback) = batch_progress.as_deref_mut() {
                         callback(StreamingBatchProgress {
                             file_index,
-                            total_files: files.len(),
+                            total_files,
                             path: path.clone(),
                             bytes_processed: progress.bytes_processed,
                             total_bytes: progress.total_bytes,
