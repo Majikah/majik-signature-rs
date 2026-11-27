@@ -3,6 +3,7 @@
 [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksmap-green)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksmap)
 
 
+**Registered Media Type:** `application/vnd.majikah.mjksmap`
 **Status:** Container version 2 (CBOR); version 1 JSON remains readable
 **Manifest schema version:** `1` (`0x01`)
 **Format:** Self-identifying binary container carrying a CBOR-native manifest
