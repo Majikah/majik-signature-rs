@@ -90,6 +90,10 @@ fn rejects_invalid_digest_size_mime_and_timestamp_fields() {
     bad_size["size"] = serde_json::Value::from(-1);
     assert!(MajikSignatureMap::from_json_value(map_json(vec![bad_size])).is_err());
 
+    let mut unsafe_size = serde_json::to_value(entry("a.txt")).unwrap();
+    unsafe_size["size"] = serde_json::Value::from(9_007_199_254_740_992u64);
+    assert!(MajikSignatureMap::from_json_value(map_json(vec![unsafe_size])).is_err());
+
     let mut bad_mime = serde_json::to_value(entry("a.txt")).unwrap();
     bad_mime["mimeType"] = serde_json::Value::String("text/plain\r\nInjected: yes".into());
     assert!(MajikSignatureMap::from_json_value(map_json(vec![bad_mime])).is_err());
