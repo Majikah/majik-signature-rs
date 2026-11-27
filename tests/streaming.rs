@@ -431,7 +431,7 @@ impl Read for FailingReader {
             output[..count].fill(0x5a);
             return Ok(count);
         }
-        Err(io::Error::new(io::ErrorKind::Other, "synthetic source failure"))
+        Err(io::Error::other("synthetic source failure"))
     }
 }
 
