@@ -25,6 +25,10 @@ use crate::core::envelope::{EnvelopeInput, MajikSignatureEnvelope};
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 use crate::core::mjksmap::MajikSignatureMap;
+use crate::core::streaming::{
+    hash_reader, BatchStreamingOptions, StreamingBatchProgress, StreamingBatchVerifyInput,
+    StreamingHashOptions, StreamingHashProgress,
+};
 use crate::core::order::{
     verify_signature_order, OrderEntry, SignatureOrderResult, VerifySignatureOrderOptions,
 };
@@ -867,6 +871,168 @@ impl MajikSignatureEmbed {
                 relocated_from,
             });
         }
+        Ok(results)
+    }
+
+    /// Verify path-backed readers against a .mjksmap without materializing file bytes.
+    ///
+    /// Inputs are consumed sequentially. Resolution preserves the buffered API semantics:
+    /// an existing path with a different digest is tampered; a missing path may resolve by
+    /// content hash as a relocation.
+    pub fn verify_files_from_mjksmap_stream(
+        map: &MajikSignatureMap,
+        files: &mut [StreamingBatchVerifyInput<'_>],
+        public_keys: &MajikSignerPublicKeys,
+        options: Option<&BatchVerifyOptions>,
+        mut streaming: BatchStreamingOptions<'_>,
+    ) -> R<Vec<FileVerifyResult>> {
+        let default_opts = BatchVerifyOptions::default();
+        let options = options.unwrap_or(&default_opts);
+        let chunk_size = streaming.chunk_size;
+        let max_bytes_per_file = streaming.max_bytes_per_file;
+        let cancellation = streaming.cancellation;
+        let mut batch_progress = streaming.on_progress.take();
+        let total_files = files.len();
+        let mut results = Vec::with_capacity(files.len());
+
+        for (file_index, file) in files.iter_mut().enumerate() {
+            let path = file.path.clone();
+            let mut progress_callback = |progress: StreamingHashProgress| {
+                if let Some(callback) = batch_progress.as_deref_mut() {
+                    callback(StreamingBatchProgress {
+                        file_index,
+                        total_files,
+                        path: path.clone(),
+                        bytes_processed: progress.bytes_processed,
+                        total_bytes: progress.total_bytes,
+                    });
+                }
+            };
+            let mut hash_options = StreamingHashOptions {
+                chunk_size,
+                threshold_bytes: crate::core::streaming::DEFAULT_HASH_STREAMING_THRESHOLD,
+                max_bytes: max_bytes_per_file,
+                total_bytes: file.total_bytes,
+                cancellation,
+                on_progress: Some(&mut progress_callback),
+            };
+            let hash = hash_reader(file.reader, &mut hash_options)?;
+            let content_hash = bytes_to_base64(&hash.digest);
+
+            let mut entry = map.get_entry(&path);
+            let mut relocated_from = None;
+            if let Some(direct) = entry {
+                if direct.content_hash != content_hash {
+                    results.push(FileVerifyResult {
+                        path,
+                        status: FileVerifyStatus::Tampered,
+                        results: None,
+                        reason: Some(
+                            "File content no longer matches what was signed — it may have been modified after signing."
+                                .into(),
+                        ),
+                        relocated_from: None,
+                    });
+                    continue;
+                }
+            } else {
+                entry = map.entries().iter().find(|candidate| candidate.content_hash == content_hash);
+                if let Some(matched) = entry {
+                    relocated_from = Some(matched.path.clone());
+                }
+            }
+
+            let Some(entry) = entry else {
+                if options.require_all_present {
+                    return Err(MajikSignatureError::new(format!(
+                        "File \"{path}\" was not found in the signature map."
+                    )));
+                }
+                results.push(FileVerifyResult {
+                    path: path.clone(),
+                    status: FileVerifyStatus::NotInMap,
+                    results: None,
+                    reason: Some(format!(
+                        "No signature entry found for \"{path}\" (checked by path and by content)."
+                    )),
+                    relocated_from: None,
+                });
+                continue;
+            };
+
+            let envelope = MajikSignatureEnvelope::from_json(&entry.envelope)?;
+            let integrity = envelope.verify_allowlist_integrity();
+            if !integrity.valid {
+                results.push(FileVerifyResult {
+                    path,
+                    status: FileVerifyStatus::Invalid,
+                    results: None,
+                    reason: integrity.reason,
+                    relocated_from,
+                });
+                continue;
+            }
+
+            let signatures: Vec<_> = match options.expected_signer_id.as_deref() {
+                Some(expected) => envelope
+                    .signatures()
+                    .iter()
+                    .filter(|signature| signature.signer_id == expected)
+                    .collect(),
+                None => envelope.signatures().iter().collect(),
+            };
+            let verify_results: Vec<VerificationResult> = if signatures.is_empty() {
+                vec![VerificationResult {
+                    valid: false,
+                    signer_id: options.expected_signer_id.clone(),
+                    content_hash: Some(content_hash.clone()),
+                    timestamp: now_iso(),
+                    reason: Some(if options.expected_signer_id.is_some() {
+                        format!(
+                            "No signature found for signerId \"{}\"",
+                            options.expected_signer_id.as_deref().unwrap_or_default()
+                        )
+                    } else {
+                        "Envelope contains no signatures".into()
+                    }),
+                    ..Default::default()
+                }]
+            } else {
+                signatures
+                    .into_iter()
+                    .map(|signature| {
+                        if signature.content_hash != content_hash {
+                            return Ok(VerificationResult {
+                                valid: false,
+                                signer_id: Some(signature.signer_id.clone()),
+                                content_hash: Some(signature.content_hash.clone()),
+                                timestamp: signature.timestamp.clone(),
+                                content_type: signature.content_type.clone(),
+                                session_context_hash: signature.session_context_hash.clone(),
+                                reason: Some("Signature contentHash does not match streamed file digest".into()),
+                                ..Default::default()
+                            });
+                        }
+                        Ok(MajikSignature::verify_commitment(signature, public_keys, options.now)?.base)
+                    })
+                    .collect::<R<Vec<_>>>()?
+            };
+            let all_valid = verify_results.iter().all(|result| result.valid);
+            let reason = match (&relocated_from, all_valid) {
+                (Some(from), true) => {
+                    Some(format!("Verified by content match — originally signed as \"{from}\"."))
+                }
+                _ => None,
+            };
+            results.push(FileVerifyResult {
+                path,
+                status: if all_valid { FileVerifyStatus::Verified } else { FileVerifyStatus::Invalid },
+                results: Some(verify_results),
+                reason,
+                relocated_from,
+            });
+        }
+
         Ok(results)
     }
 
