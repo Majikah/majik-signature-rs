@@ -271,7 +271,7 @@ The map index compares normalized path strings exactly and is case-sensitive.
 
 ### 7.2 Case sensitivity
 
-The map's JavaScript `Map` indices compare normalized path strings exactly. No case-folding is performed by the current implementation.
+Both implementations compare normalized path strings exactly (TypeScript `Map`, Rust `HashMap`). No case-folding is performed.
 
 Therefore, path keys are case-sensitive at the map layer:
 
@@ -286,13 +286,9 @@ are distinct strings.
 
 ## 8. Duplicate Paths
 
-`fromJSON()` validation checks for duplicate path strings in the supplied `entries` array.
+Both implementations normalize every supplied path using Section 7 before checking uniqueness. Two distinct input strings that normalize to the same logical path are therefore rejected during JSON parsing/validation; they are not silently collapsed by the constructor.
 
-The duplicate check currently uses the path string as supplied to validation, before the constructor performs its storage normalization.
-
-Therefore, applications producing untrusted JSON should normalize paths consistently before constructing manifests to avoid equivalent paths expressed in different pre-normalized forms.
-
-`withEntry()` replaces an existing stored entry having the same normalized path rather than creating a second stored entry.
+`withEntry()` is an immutable builder that replaces an existing entry with the same normalized path rather than creating a duplicate. The uniqueness rule is identical for JSON input and builder-created entries.
 
 ---
 
