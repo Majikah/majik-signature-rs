@@ -27,10 +27,7 @@ struct CanonicalSessionContext<'a> {
 }
 
 fn validate_identifier(value: &str, field: &str) -> MajikSignatureResult<()> {
-    if value.is_empty()
-        || value.encode_utf16().count() > 256
-        || trim_ecmascript_whitespace(value) != value
-    {
+    if value.is_empty() || value.encode_utf16().count() > 256 || trim_ecmascript_whitespace(value) != value {
         return Err(MajikSignatureError::validation(
             format!(
                 "{field} must be a non-empty string of at most 256 characters without surrounding whitespace"
@@ -90,9 +87,7 @@ mod identifier_whitespace_tests {
 
     #[test]
     fn matches_ecmascript_trim_for_bom_and_next_line() {
-        assert!(
-            validate_identifier("\u{0085}session\u{0085}", "sessionId").is_ok()
-        );
+        assert!(validate_identifier("\u{0085}session\u{0085}", "sessionId").is_ok());
         assert!(validate_identifier("\u{feff}session", "sessionId").is_err());
         assert!(validate_identifier("session\u{feff}", "challengeId").is_err());
     }

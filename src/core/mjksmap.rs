@@ -14,8 +14,8 @@ use crate::core::constants::*;
 use crate::core::envelope::MajikSignatureEnvelope;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
-use crate::core::time::now_iso;
 use crate::core::text::trim_ecmascript_whitespace;
+use crate::core::time::now_iso;
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
 
@@ -734,16 +734,10 @@ mod path_normalization_tests {
 
     #[test]
     fn matches_ecmascript_trim_for_bom_and_next_line() {
-        assert_eq!(
-            normalize_path("\u{feff}docs/a.txt\u{feff}"),
-            "docs/a.txt"
-        );
+        assert_eq!(normalize_path("\u{feff}docs/a.txt\u{feff}"), "docs/a.txt");
 
         let next_line_path = "\u{0085}docs/a.txt\u{0085}";
         assert_eq!(normalize_path(next_line_path), next_line_path);
-        assert_eq!(
-            validate_and_normalize_path(next_line_path, "path").unwrap(),
-            next_line_path
-        );
+        assert_eq!(validate_and_normalize_path(next_line_path, "path").unwrap(), next_line_path);
     }
 }
