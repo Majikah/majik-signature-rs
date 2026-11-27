@@ -346,7 +346,6 @@ fn rejects_invalid_revision_metadata_from_envelope_builder() {
     assert!(error.to_string().contains("message exceeds the limit"));
 }
 
-
 #[test]
 fn rejects_oversized_builder_allowlists_and_seal_metadata() {
     let fingerprint = bytes_to_base64(&[0x11; 32]);
