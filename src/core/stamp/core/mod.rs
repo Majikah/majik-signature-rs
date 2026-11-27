@@ -1,5 +1,6 @@
 //! Port of `core/stamp/core/` primitives.
 
+/// DCT-domain steganographic embedding and extraction primitives for experimental image stamps.
 pub mod dct_stego;
 /// Browser-independent pixel and image-format helper interfaces used by the stamp core.
 pub mod image_utils;
