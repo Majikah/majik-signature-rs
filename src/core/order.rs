@@ -17,6 +17,7 @@ type R<T> = MajikSignatureResult<T>;
 /// Where a signer's effective timestamp came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
+/// Indicates whether an effective signer-order timestamp came from a TSA or the signer's local clock.
 pub enum TimestampSource {
     /// Server-attested by a Trusted Timestamp Authority.
     Tsa,
@@ -27,6 +28,7 @@ pub enum TimestampSource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Verification and ordering status for one signer in the expected sequence.
 pub struct SignerOrderStatus {
     pub signer_id: String,
     pub expected_position: usize,
@@ -40,6 +42,7 @@ pub struct SignerOrderStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Pair of valid signers whose effective timestamps contradict the required order.
 pub struct OrderViolation {
     pub earlier: String,
     pub later: String,
@@ -49,6 +52,7 @@ pub struct OrderViolation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Warning that two signers share the same timestamp and cannot be chronologically distinguished.
 pub struct SoftTieWarning {
     pub a: String,
     pub b: String,
@@ -57,6 +61,7 @@ pub struct SoftTieWarning {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Complete result of chronological order verification, including pending and unexpected signers.
 pub struct SignatureOrderResult {
     pub valid: bool,
     pub all_expected_signed: bool,
@@ -74,12 +79,14 @@ pub struct SignatureOrderResult {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Options controlling whether unexpected signers invalidate the order result.
 pub struct VerifySignatureOrderOptions {
     pub strict: bool,
 }
 
 /// TS `MajikKey | ExpectedSigner`.
 #[derive(Clone, Copy)]
+/// An expected signer represented by a MajikKey or a prebuilt public-key entry.
 pub enum OrderEntry<'a> {
     Key(&'a MajikKey),
     Signer(&'a ExpectedSigner),
