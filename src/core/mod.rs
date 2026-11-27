@@ -32,3 +32,6 @@ pub mod time;
 pub mod types;
 /// Input shape, size, encoding, and metadata validation helpers.
 pub mod validator;
+
+/// ECMAScript-compatible whitespace handling shared by cross-language protocol validators.
+pub(crate) mod text;

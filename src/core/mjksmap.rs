@@ -15,6 +15,7 @@ use crate::core::envelope::MajikSignatureEnvelope;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 use crate::core::time::now_iso;
+use crate::core::text::trim_ecmascript_whitespace;
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
 
@@ -25,7 +26,8 @@ const MAX_SAFE_FILE_SIZE: u64 = 9_007_199_254_740_991;
 
 /// Normalise a path: `\` → `/`, trim, drop a drive letter, drop leading slashes.
 pub fn normalize_path(path: &str) -> String {
-    let mut p = path.replace('\\', "/").trim().to_string();
+    let mut p = path.replace('\\', "/");
+    p = trim_ecmascript_whitespace(&p).to_string();
     let b = p.as_bytes();
     if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
         p.drain(..2);
@@ -39,7 +41,10 @@ fn validate_and_normalize_path(path: &str, field: &str) -> R<String> {
         let code = ch as u32;
         code <= 0x1f || code == 0x7f || (0x202a..=0x202e).contains(&code) || (0x2066..=0x2069).contains(&code)
     });
-    if path.trim().is_empty() || path.encode_utf16().count() > MAX_MJKSMAP_PATH_CHARS || has_control {
+    if trim_ecmascript_whitespace(path).is_empty()
+        || path.encode_utf16().count() > MAX_MJKSMAP_PATH_CHARS
+        || has_control
+    {
         return Err(MajikSignatureError::validation(
             format!("{field} exceeds the supported path length or contains unsafe control characters"),
             Some(field),
@@ -721,4 +726,22 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
         });
     }
     Ok(out)
+}
+
+
+#[cfg(test)]
+mod path_normalization_tests {
+    use super::{normalize_path, validate_and_normalize_path};
+
+    #[test]
+    fn matches_ecmascript_trim_for_bom_and_next_line() {
+        assert_eq!(normalize_path("\u{feff}docs/a.txt\u{feff}"), "docs/a.txt");
+
+        let next_line_path = "\u{0085}docs/a.txt\u{0085}";
+        assert_eq!(normalize_path(next_line_path), next_line_path);
+        assert_eq!(
+            validate_and_normalize_path(next_line_path, "path").unwrap(),
+            next_line_path
+        );
+    }
 }

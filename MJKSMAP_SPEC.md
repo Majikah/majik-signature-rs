@@ -246,6 +246,8 @@ The implementation applies the following normalization to paths before storing a
 3. Remove a Windows drive-letter prefix such as `C:` or `D:`.
 4. Remove leading `/` characters.
 
+Trimming uses the exact ECMAScript `String.prototype.trim()` whitespace and line-terminator set in both implementations. Rust mirrors this set explicitly rather than using its native Unicode whitespace classification. In particular, U+FEFF is trimmed while U+0085 is not. This rule applies to both MJKSMAP path normalization and SignRoom `sessionId`/`challengeId` validation; interior whitespace is preserved.
+
 Examples:
 
 | Input | Normalized path |

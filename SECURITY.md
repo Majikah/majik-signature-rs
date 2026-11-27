@@ -32,7 +32,7 @@ The canonical payload uses the `majik-signature-v1:` domain separator. Separate 
 
 A successful cryptographic result proves that the signature verifies under the public keys supplied for that verification. Applications must obtain or pin those keys through an independently trusted channel and compare the verified `signerId` with the identity they expect. Public keys embedded in an envelope are self-asserted data until authenticated externally.
 
-Do not treat `getSignatories()`, `getIssuer()`, `isSigned()`, envelope parsing, or an extracted public key as proof that a person or organization has signed. Use the verification result and application-level identity policy.
+Do not treat signatory or issuer display queries, signed-status checks, envelope parsing, or an extracted public key as proof that a person or organization has signed. Use the verification result and application-level identity policy.
 
 ### Expiry and timestamps
 
@@ -45,7 +45,7 @@ TSA request transport, server authentication, trusted-key distribution, nonce/ch
 ### Allowlists, seals, and revision chains
 
 - **Allowlists:** The allowlist hash is committed by the issuer's signature. The library's signing methods enforce the allowlist when used normally. The envelope's presence or displayed signatory list is not a substitute for verifying the issuer and each signer record.
-- **Seals:** A seal is a SHA3-512 hash commitment over envelope state, not an additional digital signature. `verifySeal()` checks the seal commitment; verify the underlying per-signer Ed25519 and ML-DSA-87 signatures separately.
+- **Seals:** A seal is a SHA3-512 hash commitment over envelope state, not an additional digital signature. `verify_seal()` checks the seal commitment; verify the underlying per-signer Ed25519 and ML-DSA-87 signatures separately.
 - **Revision chains:** Structural previous-version hashes detect inconsistencies in the chain. A signer's `versionChainHash` cryptographically commits to the chain prefix at their signing turn. Commitment-only checks verify the signed commitment but cannot prove that historical bytes actually matched an earlier content hash. Full historical verification requires the actual archived revision bytes.
 
 ### MJKSMAP batch manifests
@@ -92,7 +92,7 @@ Review dependency updates, use lockfiles where applicable, and run the package m
 - Require the expected SignRoom session context for session-bound digest-only verification.
 - Set maximum input/concurrency limits for untrusted streams and cancel work when the operation is no longer needed.
 - Protect MJKSMAP manifests and enforce filesystem containment independently.
-- Keep `@majikah/majik-key` secret material protected and lock/zeroize keys through the key-management API after use.
+- Keep `majik-key` secret material protected and lock/zeroize keys through the key-management API after use.
 
 ## Cryptographic parameters
 
@@ -114,5 +114,5 @@ We follow coordinated disclosure where practical. After a fix is available, main
 
 ## Contact
 
-- Security: [GitHub Private Vulnerability Reporting](https://github.com/Majikah/majik-signature/security) or [business@majikah.solutions](mailto:business@majikah.solutions) (`SECURITY` subject)
+- Security: [GitHub Private Vulnerability Reporting](https://github.com/Majikah/majik-signature-rs/security) or [business@majikah.solutions](mailto:business@majikah.solutions) (`SECURITY` subject)
 - Maintainer: [Majikah](https://github.com/Majikah)
