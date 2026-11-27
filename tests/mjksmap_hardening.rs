@@ -73,7 +73,7 @@ fn rejects_duplicate_paths_after_normalization() {
     let hash = bytes_to_base64(&[0x2a; 32]);
     let env = serde_json::to_value(empty_envelope()).unwrap();
     let input = map_json(vec![
-        serde_json::json!({"path": r"C:\docs\report.txt", "contentHash": hash, "size":0, "mimeType":"text/plain", "envelope":env}),
+        serde_json::json!({"path": r"C:\docs\report.txt", "contentHash": hash.clone(), "size":0, "mimeType":"text/plain", "envelope":env.clone()}),
         serde_json::json!({"path": "docs/report.txt", "contentHash": hash, "size":0, "mimeType":"text/plain", "envelope":env}),
     ]);
     assert!(MajikSignatureMap::from_json_value(input).unwrap_err().to_string().contains("Duplicate normalized path"));
@@ -105,8 +105,8 @@ fn rejects_manifest_entry_count_before_building_indices() {
     let entries = (0..=MAX_MJKSMAP_ENTRIES)
         .map(|index| serde_json::json!({
             "path": format!("docs/{index}.txt"),
-            "contentHash": hash,
-            "envelope": env
+            "contentHash": hash.clone(),
+            "envelope": env.clone()
         }))
         .collect();
     assert!(MajikSignatureMap::from_json_value(map_json(entries)).unwrap_err().to_string().contains("exceeds the limit"));
