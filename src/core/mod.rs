@@ -1,5 +1,6 @@
 //! Port of `core/` (the files `index.ts` does not re-export individually are still public here).
 
+/// CBOR codec and wire adapters for signature/envelope container formats.
 pub mod cbor;
 /// Locale-compatible Base64 ordering helpers shared with the TypeScript implementation.
 pub mod collate;
