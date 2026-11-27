@@ -25,13 +25,16 @@ use crate::anchor::types::MajikChainAnchorMemo;
 use crate::core::cbor::{decode_cbor, encode_cbor, signature_from_cbor, signature_to_cbor};
 use crate::core::constants::*;
 use crate::core::envelope::MajikSignatureEnvelope;
-use crate::core::mjksmap::MajikSignatureMap;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
+use crate::core::mjksmap::MajikSignatureMap;
 use crate::core::payload::{
     build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
 };
-use crate::core::streaming::{hash_reader, BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress, StreamingHashOptions, StreamingHashProgress};
+use crate::core::streaming::{
+    hash_reader, BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress,
+    StreamingHashOptions, StreamingHashProgress,
+};
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
@@ -1570,11 +1573,12 @@ impl MajikSignature {
                     &mut hash_options,
                 )?;
 
-                let base = if let Some(expected) = options.expected_signers.as_deref().filter(|v| !v.is_empty()) {
-                    empty_envelope.with_allowlist(expected, key.fingerprint())?
-                } else {
-                    empty_envelope
-                };
+                let base =
+                    if let Some(expected) = options.expected_signers.as_deref().filter(|v| !v.is_empty()) {
+                        empty_envelope.with_allowlist(expected, key.fingerprint())?
+                    } else {
+                        empty_envelope
+                    };
                 let envelope = base.with_signature(signature.to_json())?;
                 Ok((envelope, signature, bytes_processed))
             })();
@@ -1593,10 +1597,8 @@ impl MajikSignature {
                         map = Some(current.with_entry(entry)?);
                     }
                     BatchSignMode::Separate => {
-                        signatures.push(SeparateSignature {
-                            path: path.clone(),
-                            blob: envelope.to_mjksig()?,
-                        });
+                        signatures
+                            .push(SeparateSignature { path: path.clone(), blob: envelope.to_mjksig()? });
                     }
                 },
                 Err(error) => {
@@ -1609,10 +1611,7 @@ impl MajikSignature {
                             cause: Some(Box::new(error)),
                         });
                     }
-                    failures.push(BatchSignFailure {
-                        path,
-                        error: error.message().to_string(),
-                    });
+                    failures.push(BatchSignFailure { path, error: error.message().to_string() });
                 }
             }
         }
