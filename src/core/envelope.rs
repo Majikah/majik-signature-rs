@@ -68,6 +68,7 @@ fn validate_envelope_serialized_size<T: Serialize>(value: &T) -> R<()> {
 
 /// Result of [`MajikSignatureEnvelope::check_allowlist`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of checking whether a key matches the envelope's signer allowlist.
 pub struct AllowlistCheckResult {
     /// `true` when the key may sign according to the allowlist (always `true` for open signing).
     pub permitted: bool,
@@ -76,6 +77,7 @@ pub struct AllowlistCheckResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Non-cryptographic policy-query result for whether a signer may append a signature.
 pub struct CanSignResult {
     pub permitted: bool,
     /// Human-readable explanation when `permitted` is `false` (diagnostic text, not a stable code).
@@ -83,6 +85,7 @@ pub struct CanSignResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Policy-query result describing whether a chain anchor may be appended.
 pub struct CanAnchorResult {
     pub permitted: bool,
     pub reason: Option<String>,
@@ -90,6 +93,7 @@ pub struct CanAnchorResult {
 
 /// Result of the structural integrity checks (`{ valid, reason? }` in TS).
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Structural integrity check result with a diagnostic reason on failure.
 pub struct IntegrityResult {
     pub valid: bool,
     pub reason: Option<String>,
@@ -106,6 +110,7 @@ impl IntegrityResult {
 
 /// TS `EnvelopeInput`: an envelope, its JSON shape, or MJKSIG bytes.
 #[derive(Debug, Clone)]
+/// Supported detached-envelope inputs for parsing and verification APIs.
 pub enum EnvelopeInput {
     Envelope(MajikSignatureEnvelope),
     Json(MajikSignatureEnvelopeJSON),
@@ -134,6 +139,10 @@ impl From<&[u8]> for EnvelopeInput {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Immutable multi-signer envelope with allowlist, seal, revision, and chain-anchor metadata.
+///
+/// Builder methods return a new validated envelope. Parsing and structural
+/// checks do not cryptographically verify the per-signer records it contains.
 pub struct MajikSignatureEnvelope {
     data: MultiSigEnvelope,
 }
@@ -159,12 +168,15 @@ impl MajikSignatureEnvelope {
 
     // ── Getters ──────────────────────────────────────────────────────────────
 
+    /// Return the logical envelope schema version.
     pub fn version(&self) -> u8 {
         self.data.version
     }
+    /// Return the ordered per-signer records carried by this envelope.
     pub fn signatures(&self) -> &[MajikSignatureJSON] {
         &self.data.signatures
     }
+    /// Return the optional signer allowlist; this does not itself verify the issuer signature.
     pub fn allowlist(&self) -> Option<&[ExpectedSigner]> {
         self.data.allowlist.as_deref()
     }
@@ -172,21 +184,27 @@ impl MajikSignatureEnvelope {
     pub fn allowlist_signer_id(&self) -> Option<&str> {
         self.data.allowlist_signer_id.as_deref()
     }
+    /// Return the optional SHA3-512 seal commitment.
     pub fn seal_hash(&self) -> Option<&str> {
         self.data.seal_hash.as_deref()
     }
+    /// Return the timestamp recorded when the envelope was sealed.
     pub fn seal_timestamp(&self) -> Option<&str> {
         self.data.seal_timestamp.as_deref()
     }
+    /// Return the signer fingerprint recorded as the sealer.
     pub fn sealed_by(&self) -> Option<&str> {
         self.data.sealed_by.as_deref()
     }
+    /// Return the anchor metadata currently attached to this envelope.
     pub fn chain_anchors(&self) -> &[MajikChainAnchor] {
         self.data.chain_anchors.as_deref().unwrap_or(&[])
     }
+    /// Return the metadata-only revision chain in version order.
     pub fn file_versions(&self) -> &[FileVersion] {
         self.data.file_versions.as_deref().unwrap_or(&[])
     }
+    /// Return the most recent revision entry, when the chain is non-empty.
     pub fn last_file_version(&self) -> Option<&FileVersion> {
         self.data.file_versions.as_ref().and_then(|v| v.last())
     }
@@ -261,12 +279,15 @@ impl MajikSignatureEnvelope {
 
     // ── State predicates ─────────────────────────────────────────────────────
 
+    /// Return whether seal metadata is present; this does not verify the seal hash.
     pub fn is_sealed(&self) -> bool {
         self.data.seal_hash.is_some()
     }
+    /// Return whether the envelope contains a signer allowlist.
     pub fn has_allowlist(&self) -> bool {
         self.data.allowlist.as_ref().map(|a| !a.is_empty()).unwrap_or(false)
     }
+    /// Return whether the envelope has no signer records yet.
     pub fn is_first_signer(&self) -> bool {
         self.data.signatures.is_empty()
     }
@@ -274,13 +295,16 @@ impl MajikSignatureEnvelope {
     pub fn is_multi_sig(&self) -> bool {
         self.data.allowlist.as_ref().map(|a| a.len() > 1).unwrap_or(false)
     }
+    /// Return whether more than one signer record is present.
     pub fn has_multiple_signatories(&self) -> bool {
         self.data.signatures.len() > 1
     }
+    /// Find a signer record by fingerprint without verifying that record.
     pub fn find_signature(&self, signer_id: &str) -> Option<&MajikSignatureJSON> {
         self.data.signatures.iter().find(|s| s.signer_id == signer_id)
     }
 
+    /// Check whether a fingerprint matches the recorded allowlist issuer.
     pub fn is_issuer(&self, fingerprint: &str) -> bool {
         self.data
             .allowlist_signer_id
@@ -288,6 +312,7 @@ impl MajikSignatureEnvelope {
             .map(|id| !id.is_empty() && id == fingerprint)
             .unwrap_or(false)
     }
+    /// Check whether a MajikKey fingerprint matches the recorded allowlist issuer.
     pub fn is_issuer_key(&self, key: &MajikKey) -> bool {
         self.is_issuer(key.fingerprint())
     }
@@ -335,6 +360,7 @@ impl MajikSignatureEnvelope {
         Ok(())
     }
 
+    /// Evaluate allowlist/seal policy for a key; this is a preflight query, not a signature.
     pub fn can_sign(&self, key: &MajikKey) -> CanSignResult {
         match self.assert_can_sign(key) {
             Ok(()) => CanSignResult { permitted: true, reason: None },
@@ -349,6 +375,7 @@ impl MajikSignatureEnvelope {
         bytes_to_base64(&hash_content(to_json_bytes(&sorted).as_slice()))
     }
 
+    /// Recompute the canonical SHA-256 allowlist digest, if an allowlist is present.
     pub fn computed_allowlist_hash(&self) -> Option<String> {
         if self.has_allowlist() {
             self.data.allowlist.as_deref().map(Self::hash_allowlist)
@@ -567,6 +594,7 @@ impl MajikSignatureEnvelope {
         }
     }
 
+    /// Return seal metadata without verifying the seal or the contained signer records.
     pub fn get_seal_info(&self) -> Option<SealInfo> {
         match (
             self.data.seal_hash.as_deref().filter(|s| !s.is_empty()),
@@ -582,6 +610,7 @@ impl MajikSignatureEnvelope {
         }
     }
 
+    /// Evaluate whether another chain anchor may be appended under the current policy.
     pub fn can_anchor(&self) -> CanAnchorResult {
         if !self.is_sealed() {
             return CanAnchorResult {
@@ -594,6 +623,7 @@ impl MajikSignatureEnvelope {
 
     // ── Signatories / issuer / info ──────────────────────────────────────────
 
+    /// Resolve display information for the allowlist-establishing signer, if present.
     pub fn resolve_issuer(&self) -> Option<SignatoryInfo> {
         if let Some(issuer_id) = self.data.allowlist_signer_id.as_deref().filter(|s| !s.is_empty()) {
             let entry =
@@ -674,6 +704,7 @@ impl MajikSignatureEnvelope {
         Some(SignatoriesResult { all, signed, pending })
     }
 
+    /// Return a structural summary of the envelope's current state.
     pub fn get_envelope_info(&self) -> EnvelopeInfo {
         EnvelopeInfo {
             is_multi_sig: self.has_allowlist() || self.has_multiple_signatories(),
@@ -689,10 +720,12 @@ impl MajikSignatureEnvelope {
 
     // ── Serialization ────────────────────────────────────────────────────────
 
+    /// Return an owned JSON-compatible snapshot of this envelope.
     pub fn to_json(&self) -> MajikSignatureEnvelopeJSON {
         self.data.clone()
     }
 
+    /// Serialize the logical envelope model as compact JSON text.
     pub fn to_json_string(&self) -> String {
         String::from_utf8(to_json_bytes(&self.data)).expect("serde_json emits UTF-8")
     }
@@ -702,6 +735,7 @@ impl MajikSignatureEnvelope {
         B64.encode(to_json_bytes(&self.data))
     }
 
+    /// Decode the legacy Base64-encoded JSON envelope representation.
     pub fn deserialize(base64: &str) -> R<MajikSignatureEnvelope> {
         let max_encoded_len = MAX_ENVELOPE_BYTES.div_ceil(3) * 4;
         if base64.trim().len() > max_encoded_len {
@@ -832,10 +866,12 @@ impl MajikSignatureEnvelope {
         }
     }
 
+    /// Check the MJKSIG magic prefix only; this does not validate the header or payload.
     pub fn is_mjksig(input: &[u8]) -> bool {
         input.len() >= MJKSIG_MAGIC_LEN && input[..MJKSIG_MAGIC_LEN] == MJKSIG_MAGIC
     }
 
+    /// Return the container version byte when the MJKSIG magic/header prefix is present.
     pub fn get_mjksig_version(input: &[u8]) -> Option<u8> {
         if !Self::is_mjksig(input) || input.len() < MJKSIG_MAGIC_LEN + 1 {
             return None;
@@ -845,6 +881,7 @@ impl MajikSignatureEnvelope {
 
     // ── Factories ────────────────────────────────────────────────────────────
 
+    /// Create an empty logical envelope using schema version 1.
     pub fn empty() -> Self {
         Self::new(MultiSigEnvelope {
             version: MAJIK_ENVELOPE_VERSION,
@@ -873,6 +910,7 @@ impl MajikSignatureEnvelope {
         Self::from_json_value(parsed)
     }
 
+    /// Validate an untrusted JSON value and construct an immutable envelope.
     pub fn from_json_value(parsed: Value) -> R<MajikSignatureEnvelope> {
         validate_envelope_serialized_size(&parsed)?;
         let Value::Object(obj) = &parsed else {
@@ -931,12 +969,14 @@ impl MajikSignatureEnvelope {
 
     // ── Validation ───────────────────────────────────────────────────────────
 
+    /// Re-run structural validation of this envelope; contained signatures are not verified here.
     pub fn validate(&self) -> R<()> {
         let v = serde_json::to_value(&self.data)
             .map_err(|e| MajikSignatureError::serialization_with_cause("Failed to serialize envelope", e))?;
         validate_shape(&v)
     }
 
+    /// Return whether the envelope passes structural validation without returning an error.
     pub fn is_valid(&self) -> bool {
         self.validate().is_ok()
     }
