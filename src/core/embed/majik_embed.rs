@@ -25,12 +25,12 @@ use crate::core::envelope::{EnvelopeInput, MajikSignatureEnvelope};
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 use crate::core::mjksmap::MajikSignatureMap;
+use crate::core::order::{
+    verify_signature_order, OrderEntry, SignatureOrderResult, VerifySignatureOrderOptions,
+};
 use crate::core::streaming::{
     hash_reader, BatchStreamingOptions, StreamingBatchProgress, StreamingBatchVerifyInput,
     StreamingHashOptions, StreamingHashProgress,
-};
-use crate::core::order::{
-    verify_signature_order, OrderEntry, SignatureOrderResult, VerifySignatureOrderOptions,
 };
 use crate::core::time::now_iso;
 use crate::core::types::*;
@@ -974,11 +974,9 @@ impl MajikSignatureEmbed {
             }
 
             let signatures: Vec<_> = match options.expected_signer_id.as_deref() {
-                Some(expected) => envelope
-                    .signatures()
-                    .iter()
-                    .filter(|signature| signature.signer_id == expected)
-                    .collect(),
+                Some(expected) => {
+                    envelope.signatures().iter().filter(|signature| signature.signer_id == expected).collect()
+                },
                 None => envelope.signatures().iter().collect(),
             };
             let verify_results: Vec<VerificationResult> = if signatures.is_empty() {
@@ -1009,7 +1007,9 @@ impl MajikSignatureEmbed {
                                 timestamp: signature.timestamp.clone(),
                                 content_type: signature.content_type.clone(),
                                 session_context_hash: signature.session_context_hash.clone(),
-                                reason: Some("Signature contentHash does not match streamed file digest".into()),
+                                reason: Some(
+                                    "Signature contentHash does not match streamed file digest".into(),
+                                ),
                                 ..Default::default()
                             });
                         }
