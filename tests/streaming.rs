@@ -186,6 +186,49 @@ fn detached_batch_reader_signing_matches_buffered_signatures() {
     let first_signature = &first_entry.envelope.signatures[0];
     let verified = MajikSignature::verify(&first, first_signature, &public_keys, None).unwrap();
     assert!(verified.valid, "{:?}", verified.reason);
+
+    let mut exact_reader = io::Cursor::new(first.clone());
+    let mut relocated_reader = io::Cursor::new(second.clone());
+    let mut verify_inputs = vec![
+        StreamingBatchVerifyInput {
+            path: "docs/first.txt".into(),
+            reader: &mut exact_reader,
+            total_bytes: Some(first.len() as u64),
+        },
+        StreamingBatchVerifyInput {
+            path: "moved/second.txt".into(),
+            reader: &mut relocated_reader,
+            total_bytes: Some(second.len() as u64),
+        },
+    ];
+    let verify_results = MajikSignature::verify_files_from_mjksmap_stream(
+        &map,
+        &mut verify_inputs,
+        &public_keys,
+        None,
+        BatchStreamingOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(verify_results[0].status, FileVerifyStatus::Verified);
+    assert_eq!(verify_results[1].status, FileVerifyStatus::Verified);
+    assert_eq!(verify_results[1].relocated_from.as_deref(), Some("docs/second.txt"));
+
+    let modified = b"modified batch content".to_vec();
+    let mut modified_reader = io::Cursor::new(modified.clone());
+    let mut tampered_input = vec![StreamingBatchVerifyInput {
+        path: "docs/first.txt".into(),
+        reader: &mut modified_reader,
+        total_bytes: Some(modified.len() as u64),
+    }];
+    let tampered = MajikSignature::verify_files_from_mjksmap_stream(
+        &map,
+        &mut tampered_input,
+        &public_keys,
+        None,
+        BatchStreamingOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(tampered[0].status, FileVerifyStatus::Tampered);
 }
 
 #[test]
