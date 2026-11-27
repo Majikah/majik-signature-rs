@@ -32,10 +32,7 @@ fn validate_and_normalize_path(path: &str, field: &str) -> R<String> {
     let normalized = normalize_path(path);
     let has_control = path.chars().any(|ch| {
         let code = ch as u32;
-        code <= 0x1f
-            || code == 0x7f
-            || (0x202a..=0x202e).contains(&code)
-            || (0x2066..=0x2069).contains(&code)
+        code <= 0x1f || code == 0x7f || (0x202a..=0x202e).contains(&code) || (0x2066..=0x2069).contains(&code)
     });
     if path.trim().is_empty() || path.encode_utf16().count() > MAX_MJKSMAP_PATH_CHARS || has_control {
         return Err(MajikSignatureError::validation(
@@ -67,13 +64,17 @@ impl BoundedWriter {
 
 impl Write for BoundedWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        let next = self.bytes.len().checked_add(buffer.len())
+        let next = self
+            .bytes
+            .len()
+            .checked_add(buffer.len())
             .ok_or_else(|| io::Error::other("serialized payload length overflow"))?;
         if next > self.limit {
             self.exceeded = true;
             return Err(io::Error::new(io::ErrorKind::InvalidData, "manifest payload exceeds limit"));
         }
-        self.bytes.try_reserve(buffer.len())
+        self.bytes
+            .try_reserve(buffer.len())
             .map_err(|error| io::Error::other(format!("manifest allocation failed: {error}")))?;
         self.bytes.extend_from_slice(buffer);
         Ok(buffer.len())
@@ -258,7 +259,8 @@ impl MajikSignatureMap {
     pub fn to_mjksmap_bytes(&self) -> Vec<u8> {
         // All constructors enforce this bound; the capped writer protects this
         // final serialization from an unexpectedly oversized internal state.
-        let payload = serialize_map_payload(&self.to_json()).expect("validated MJKSMAP payload size invariant");
+        let payload =
+            serialize_map_payload(&self.to_json()).expect("validated MJKSMAP payload size invariant");
         let mut out = Vec::with_capacity(MJKSMAP_HEADER_LEN + payload.len());
         out.extend_from_slice(&MJKSMAP_MAGIC);
         out.push(MJKSMAP_VERSION);
@@ -306,11 +308,14 @@ impl MajikSignatureMap {
         let off = MJKSMAP_MAGIC_LEN + 2;
         let payload_len = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]) as usize;
         if payload_len == 0 || payload_len > MAX_MJKSMAP_BYTES {
-            return Err(MajikSignatureError::serialization("Malformed MJKSMAP: invalid or oversized payload length"));
+            return Err(MajikSignatureError::serialization(
+                "Malformed MJKSMAP: invalid or oversized payload length",
+            ));
         }
         let start = MJKSMAP_HEADER_LEN;
-        let end = start.checked_add(payload_len)
-            .ok_or_else(|| MajikSignatureError::serialization("Malformed MJKSMAP: payload length overflow"))?;
+        let end = start.checked_add(payload_len).ok_or_else(|| {
+            MajikSignatureError::serialization("Malformed MJKSMAP: payload length overflow")
+        })?;
         if end > raw.len() {
             return Err(MajikSignatureError::serialization(
                 "Malformed MJKSMAP: declared payload length exceeds buffer",
@@ -322,7 +327,10 @@ impl MajikSignatureMap {
             ));
         }
         let json = std::str::from_utf8(&raw[start..end]).map_err(|error| {
-            MajikSignatureError::serialization_with_cause("Malformed MJKSMAP: payload is not valid UTF-8", error)
+            MajikSignatureError::serialization_with_cause(
+                "Malformed MJKSMAP: payload is not valid UTF-8",
+                error,
+            )
         })?;
         Self::from_json_str(json)
     }
@@ -402,7 +410,9 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
     if obj.get("createdAt").and_then(Value::as_str).map(|s| s.is_empty()).unwrap_or(true) {
         return Err(verr("createdAt must be a non-empty ISO 8601 string".into(), "createdAt"));
     }
-    let created_at = obj.get("createdAt").and_then(Value::as_str)
+    let created_at = obj
+        .get("createdAt")
+        .and_then(Value::as_str)
         .ok_or_else(|| verr("createdAt must be a valid ISO 8601 timestamp".into(), "createdAt"))?;
     MajikSignatureValidator::validate_timestamp_for_signing(created_at)?;
     let raw_entries = obj
@@ -419,11 +429,14 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
         let Some(e) = entry.as_object() else {
             return Err(verr(format!("entries[{i}] must be an object"), "entries"));
         };
-        let path = e.get("path").and_then(Value::as_str)
+        let path = e
+            .get("path")
+            .and_then(Value::as_str)
             .ok_or_else(|| verr(format!("entries[{i}].path must be a non-empty string"), "path"))?;
         let normalized_path = validate_and_normalize_path(path, &format!("entries[{i}].path"))?;
-        let hash = e.get("contentHash").and_then(Value::as_str)
-            .ok_or_else(|| verr(format!("entries[{i}].contentHash must be a base64 SHA-256 digest"), "contentHash"))?;
+        let hash = e.get("contentHash").and_then(Value::as_str).ok_or_else(|| {
+            verr(format!("entries[{i}].contentHash must be a base64 SHA-256 digest"), "contentHash")
+        })?;
         MajikSignatureValidator::validate_sha256_digest(hash, "contentHash")?;
         let size = match e.get("size") {
             None => None,
@@ -434,9 +447,9 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
         let mime_type = match e.get("mimeType") {
             None => None,
             Some(value) => {
-                let mime = value.as_str().ok_or_else(|| verr(
-                    format!("entries[{i}].mimeType must be a string when present"), "mimeType"
-                ))?;
+                let mime = value.as_str().ok_or_else(|| {
+                    verr(format!("entries[{i}].mimeType must be a string when present"), "mimeType")
+                })?;
                 MajikSignatureValidator::validate_content_type(Some(mime))?;
                 Some(mime.to_string())
             }
