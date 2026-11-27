@@ -4,6 +4,7 @@
 //! `with_*` methods return a new map.
 
 use std::collections::HashMap;
+use std::io::{self, Write};
 
 use serde_json::Value;
 
@@ -13,6 +14,7 @@ use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{bytes_to_base64, hash_content};
 use crate::core::time::now_iso;
 use crate::core::types::*;
+use crate::core::validator::MajikSignatureValidator;
 
 type R<T> = MajikSignatureResult<T>;
 
@@ -24,6 +26,75 @@ pub fn normalize_path(path: &str) -> String {
         p.drain(..2);
     }
     p.trim_start_matches('/').to_string()
+}
+
+fn validate_and_normalize_path(path: &str, field: &str) -> R<String> {
+    let normalized = normalize_path(path);
+    let has_control = path.chars().any(|ch| {
+        let code = ch as u32;
+        code <= 0x1f
+            || code == 0x7f
+            || (0x202a..=0x202e).contains(&code)
+            || (0x2066..=0x2069).contains(&code)
+    });
+    if path.trim().is_empty() || path.encode_utf16().count() > MAX_MJKSMAP_PATH_CHARS || has_control {
+        return Err(MajikSignatureError::validation(
+            format!("{field} exceeds the supported path length or contains unsafe control characters"),
+            Some(field),
+        ));
+    }
+    if normalized.is_empty() || normalized.split('/').any(|part| part == "..") {
+        return Err(MajikSignatureError::validation(
+            format!("{field} must resolve to a non-traversing relative path"),
+            Some(field),
+        ));
+    }
+    Ok(normalized)
+}
+
+/// A Vec-backed writer that never allocates beyond the manifest payload ceiling.
+struct BoundedWriter {
+    bytes: Vec<u8>,
+    limit: usize,
+    exceeded: bool,
+}
+
+impl BoundedWriter {
+    fn new(limit: usize) -> Self {
+        Self { bytes: Vec::new(), limit, exceeded: false }
+    }
+}
+
+impl Write for BoundedWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let next = self.bytes.len().checked_add(buffer.len())
+            .ok_or_else(|| io::Error::other("serialized payload length overflow"))?;
+        if next > self.limit {
+            self.exceeded = true;
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "manifest payload exceeds limit"));
+        }
+        self.bytes.try_reserve(buffer.len())
+            .map_err(|error| io::Error::other(format!("manifest allocation failed: {error}")))?;
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialize_map_payload(data: &MjksMapJSON) -> R<Vec<u8>> {
+    let mut writer = BoundedWriter::new(MAX_MJKSMAP_BYTES);
+    if let Err(error) = serde_json::to_writer(&mut writer, data) {
+        let message = if writer.exceeded {
+            format!("MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes")
+        } else {
+            format!("Failed to serialize MJKSMAP payload: {error}")
+        };
+        return Err(MajikSignatureError::serialization_with_cause(message, error));
+    }
+    Ok(writer.bytes)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,20 +216,26 @@ impl MajikSignatureMap {
 
     /// Add an entry, replacing any existing entry for the same (normalised) path.
     pub fn with_entry(&self, mut entry: MjksMapEntry) -> R<MajikSignatureMap> {
-        if entry.path.trim().is_empty() {
-            return Err(MajikSignatureError::validation("Entry must have a non-empty path.", Some("path")));
+        entry.path = validate_and_normalize_path(&entry.path, "path")?;
+        MajikSignatureValidator::validate_sha256_digest(&entry.content_hash, "contentHash")?;
+        if let Some(size) = entry.size {
+            let _ = size;
         }
-        if entry.content_hash.trim().is_empty() {
-            return Err(MajikSignatureError::validation(
-                "Entry must have a non-empty contentHash.",
-                Some("contentHash"),
-            ));
-        }
-        entry.path = normalize_path(&entry.path);
+        MajikSignatureValidator::validate_content_type(entry.mime_type.as_deref())?;
+        MajikSignatureEnvelope::from_json(&entry.envelope)?;
+
         let mut entries: Vec<MjksMapEntry> =
             self.entries.iter().filter(|e| e.path != entry.path).cloned().collect();
         entries.push(entry);
-        Ok(Self::new(MjksMapJSON { version: self.version, created_at: self.created_at.clone(), entries }))
+        if entries.len() > MAX_MJKSMAP_ENTRIES {
+            return Err(MajikSignatureError::validation(
+                format!("MJKSMAP entries exceeds the limit of {MAX_MJKSMAP_ENTRIES}"),
+                Some("entries"),
+            ));
+        }
+        let data = MjksMapJSON { version: self.version, created_at: self.created_at.clone(), entries };
+        serialize_map_payload(&data)?;
+        Ok(Self::new(data))
     }
 
     pub fn without_entry(&self, path: &str) -> MajikSignatureMap {
@@ -182,7 +259,9 @@ impl MajikSignatureMap {
 
     /// `[magic(7)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload JSON]`.
     pub fn to_mjksmap_bytes(&self) -> Vec<u8> {
-        let payload = serde_json::to_vec(&self.to_json()).expect("serializing plain data is infallible");
+        // All constructors enforce this bound; the capped writer protects this
+        // final serialization from an unexpectedly oversized internal state.
+        let payload = serialize_map_payload(&self.to_json()).expect("validated MJKSMAP payload size invariant");
         let mut out = Vec::with_capacity(MJKSMAP_HEADER_LEN + payload.len());
         out.extend_from_slice(&MJKSMAP_MAGIC);
         out.push(MJKSMAP_VERSION);
@@ -198,6 +277,12 @@ impl MajikSignatureMap {
     }
 
     pub fn from_mjksmap(raw: &[u8]) -> R<MajikSignatureMap> {
+        if raw.len() > MAX_MJKSMAP_BYTES + MJKSMAP_HEADER_LEN {
+            return Err(MajikSignatureError::serialization(format!(
+                "MJKSMAP input exceeds the maximum supported size of {} bytes",
+                MAX_MJKSMAP_BYTES + MJKSMAP_HEADER_LEN
+            )));
+        }
         if raw.len() < MJKSMAP_HEADER_LEN + 1 {
             return Err(MajikSignatureError::serialization(
                 "Malformed MJKSMAP: too short to contain a valid header",
@@ -215,19 +300,34 @@ impl MajikSignatureMap {
                 MJKSMAP_SUPPORTED_VERSIONS.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")
             )));
         }
+        let reserved = raw[MJKSMAP_MAGIC_LEN + 1];
+        if reserved != 0 {
+            return Err(MajikSignatureError::serialization(format!(
+                "Malformed MJKSMAP: reserved byte must be 0x00, got 0x{reserved:02x}"
+            )));
+        }
         let off = MJKSMAP_MAGIC_LEN + 2;
-        let payload_len = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]);
-        if payload_len == 0 || payload_len >= 0x8000_0000 {
-            return Err(MajikSignatureError::serialization("Malformed MJKSMAP: invalid payload length"));
+        let payload_len = u32::from_be_bytes([raw[off], raw[off + 1], raw[off + 2], raw[off + 3]]) as usize;
+        if payload_len == 0 || payload_len > MAX_MJKSMAP_BYTES {
+            return Err(MajikSignatureError::serialization("Malformed MJKSMAP: invalid or oversized payload length"));
         }
         let start = MJKSMAP_HEADER_LEN;
-        let end = start + payload_len as usize;
+        let end = start.checked_add(payload_len)
+            .ok_or_else(|| MajikSignatureError::serialization("Malformed MJKSMAP: payload length overflow"))?;
         if end > raw.len() {
             return Err(MajikSignatureError::serialization(
                 "Malformed MJKSMAP: declared payload length exceeds buffer",
             ));
         }
-        Self::from_json_str(&String::from_utf8_lossy(&raw[start..end]))
+        if end != raw.len() {
+            return Err(MajikSignatureError::serialization(
+                "Malformed MJKSMAP: trailing bytes after the declared payload",
+            ));
+        }
+        let json = std::str::from_utf8(&raw[start..end]).map_err(|error| {
+            MajikSignatureError::serialization_with_cause("Malformed MJKSMAP: payload is not valid UTF-8", error)
+        })?;
+        Self::from_json_str(json)
     }
 
     pub fn is_mjksmap(input: &[u8]) -> bool {
@@ -241,6 +341,11 @@ impl MajikSignatureMap {
     }
 
     pub fn from_json_str(json: &str) -> R<MajikSignatureMap> {
+        if json.len() > MAX_MJKSMAP_BYTES {
+            return Err(MajikSignatureError::serialization(format!(
+                "MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes"
+            )));
+        }
         let parsed: Value = serde_json::from_str(json).map_err(|e| {
             MajikSignatureError::serialization_with_cause("MJKSMAP payload is not valid JSON", e)
         })?;
@@ -248,12 +353,25 @@ impl MajikSignatureMap {
     }
 
     pub fn from_json_value(parsed: Value) -> R<MajikSignatureMap> {
+        // Serialize through a bounded writer before constructing lookup indices.
+        // This also protects callers that pass a large in-memory Value directly.
+        let mut writer = BoundedWriter::new(MAX_MJKSMAP_BYTES);
+        if let Err(error) = serde_json::to_writer(&mut writer, &parsed) {
+            let message = if writer.exceeded {
+                format!("MJKSMAP payload exceeds the maximum supported size of {MAX_MJKSMAP_BYTES} bytes")
+            } else {
+                format!("Failed to serialize MJKSMAP input: {error}")
+            };
+            return Err(MajikSignatureError::serialization_with_cause(message, error));
+        }
         let Value::Object(obj) = &parsed else {
             return Err(MajikSignatureError::serialization("MJKSMAP payload must be a JSON object"));
         };
         let entries = validate_shape(obj)?;
         let created_at = obj.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string();
-        Ok(Self::new(MjksMapJSON { version: MJKSMAP_VERSION, created_at, entries }))
+        let data = MjksMapJSON { version: MJKSMAP_VERSION, created_at, entries };
+        serialize_map_payload(&data)?;
+        Ok(Self::new(data))
     }
 
     pub fn from_json(json: &MjksMapJSON) -> R<MajikSignatureMap> {
@@ -287,10 +405,16 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
     if obj.get("createdAt").and_then(Value::as_str).map(|s| s.is_empty()).unwrap_or(true) {
         return Err(verr("createdAt must be a non-empty ISO 8601 string".into(), "createdAt"));
     }
+    let created_at = obj.get("createdAt").and_then(Value::as_str)
+        .ok_or_else(|| verr("createdAt must be a valid ISO 8601 timestamp".into(), "createdAt"))?;
+    MajikSignatureValidator::validate_timestamp_for_signing(created_at)?;
     let raw_entries = obj
         .get("entries")
         .and_then(Value::as_array)
         .ok_or_else(|| verr("entries must be an array".into(), "entries"))?;
+    if raw_entries.len() > MAX_MJKSMAP_ENTRIES {
+        return Err(verr(format!("MJKSMAP entries exceeds the limit of {MAX_MJKSMAP_ENTRIES}"), "entries"));
+    }
 
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::with_capacity(raw_entries.len());
@@ -298,26 +422,40 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
         let Some(e) = entry.as_object() else {
             return Err(verr(format!("entries[{i}] must be an object"), "entries"));
         };
-        let path = e.get("path").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-        let Some(path) = path else {
-            return Err(verr(format!("entries[{i}].path must be a non-empty string"), "path"));
+        let path = e.get("path").and_then(Value::as_str)
+            .ok_or_else(|| verr(format!("entries[{i}].path must be a non-empty string"), "path"))?;
+        let normalized_path = validate_and_normalize_path(path, &format!("entries[{i}].path"))?;
+        let hash = e.get("contentHash").and_then(Value::as_str)
+            .ok_or_else(|| verr(format!("entries[{i}].contentHash must be a base64 SHA-256 digest"), "contentHash"))?;
+        MajikSignatureValidator::validate_sha256_digest(hash, "contentHash")?;
+        let size = match e.get("size") {
+            None => None,
+            Some(value) => Some(value.as_u64().ok_or_else(|| {
+                verr(format!("entries[{i}].size must be a non-negative integer when present"), "size")
+            })?),
         };
-        let hash = e.get("contentHash").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-        let Some(hash) = hash else {
-            return Err(verr(format!("entries[{i}].contentHash must be a non-empty string"), "contentHash"));
+        let mime_type = match e.get("mimeType") {
+            None => None,
+            Some(value) => {
+                let mime = value.as_str().ok_or_else(|| verr(
+                    format!("entries[{i}].mimeType must be a string when present"), "mimeType"
+                ))?;
+                MajikSignatureValidator::validate_content_type(Some(mime))?;
+                Some(mime.to_string())
+            }
         };
         let Some(env) = e.get("envelope").filter(|v| v.is_object()) else {
             return Err(verr(format!("entries[{i}].envelope must be an object"), "envelope"));
         };
         let envelope = MajikSignatureEnvelope::from_json_value(env.clone())?.to_json();
-        if !seen.insert(path.to_string()) {
-            return Err(verr(format!("Duplicate path in entries: \"{path}\""), "path"));
+        if !seen.insert(normalized_path.clone()) {
+            return Err(verr(format!("Duplicate normalized path in entries: \"{normalized_path}\""), "path"));
         }
         out.push(MjksMapEntry {
-            path: path.to_string(),
+            path: normalized_path,
             content_hash: hash.to_string(),
-            size: e.get("size").and_then(Value::as_u64),
-            mime_type: e.get("mimeType").and_then(Value::as_str).map(str::to_string),
+            size,
+            mime_type,
             envelope,
         });
     }
