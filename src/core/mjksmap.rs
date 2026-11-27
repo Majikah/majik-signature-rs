@@ -18,6 +18,9 @@ use crate::core::validator::MajikSignatureValidator;
 
 type R<T> = MajikSignatureResult<T>;
 
+/// JavaScript Number.MAX_SAFE_INTEGER, used to keep the TS/Rust JSON contracts aligned.
+const MAX_SAFE_FILE_SIZE: u64 = 9_007_199_254_740_991;
+
 /// Normalise a path: `\` → `/`, trim, drop a drive letter, drop leading slashes.
 pub fn normalize_path(path: &str) -> String {
     let mut p = path.replace('\\', "/").trim().to_string();
@@ -219,6 +222,12 @@ impl MajikSignatureMap {
     pub fn with_entry(&self, mut entry: MjksMapEntry) -> R<MajikSignatureMap> {
         entry.path = validate_and_normalize_path(&entry.path, "path")?;
         MajikSignatureValidator::validate_sha256_digest(&entry.content_hash, "contentHash")?;
+        if entry.size.is_some_and(|size| size > MAX_SAFE_FILE_SIZE) {
+            return Err(MajikSignatureError::validation(
+                "size must be a non-negative safe integer when present",
+                Some("size"),
+            ));
+        }
         MajikSignatureValidator::validate_content_type(entry.mime_type.as_deref())?;
         MajikSignatureEnvelope::from_json(&entry.envelope)?;
 
@@ -440,9 +449,18 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
         MajikSignatureValidator::validate_sha256_digest(hash, "contentHash")?;
         let size = match e.get("size") {
             None => None,
-            Some(value) => Some(value.as_u64().ok_or_else(|| {
-                verr(format!("entries[{i}].size must be a non-negative integer when present"), "size")
-            })?),
+            Some(value) => {
+                let size = value.as_u64().ok_or_else(|| {
+                    verr(format!("entries[{i}].size must be a non-negative safe integer when present"), "size")
+                })?;
+                if size > MAX_SAFE_FILE_SIZE {
+                    return Err(verr(
+                        format!("entries[{i}].size must be a non-negative safe integer when present"),
+                        "size",
+                    ));
+                }
+                Some(size)
+            },
         };
         let mime_type = match e.get("mimeType") {
             None => None,
