@@ -5,7 +5,7 @@
 //!   where binary fields (Base64/hex in JSON) become real CBOR byte strings.
 //!
 //! The TS `types.ts` wire interfaces have no separate Rust file: the wire schema is expressed
-//! directly by [`wire`] over `ciborium::value::Value`, so decoding stays as strict as TS.
+//! directly by [`crate::core::cbor::wire`] over `ciborium::value::Value`, so decoding stays as strict as TS.
 //!
 //! This is a serialization format only; the signed canonical payload is unchanged.
 
