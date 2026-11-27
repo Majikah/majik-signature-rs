@@ -218,9 +218,6 @@ impl MajikSignatureMap {
     pub fn with_entry(&self, mut entry: MjksMapEntry) -> R<MajikSignatureMap> {
         entry.path = validate_and_normalize_path(&entry.path, "path")?;
         MajikSignatureValidator::validate_sha256_digest(&entry.content_hash, "contentHash")?;
-        if let Some(size) = entry.size {
-            let _ = size;
-        }
         MajikSignatureValidator::validate_content_type(entry.mime_type.as_deref())?;
         MajikSignatureEnvelope::from_json(&entry.envelope)?;
 
