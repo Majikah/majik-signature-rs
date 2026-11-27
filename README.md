@@ -12,7 +12,7 @@
 
 Keys come from [`majik-key`](https://crates.io/crates/majik-key) (one BIP-39 mnemonic → Ed25519 + ML-DSA-87 + more).
 
-The crate mirrors the TypeScript source tree one-to-one (`index.ts` → `lib.rs`/`mod.rs`, `types.ts` → serde structs), uses `zeroize` where TS used `secureFill`, and produces/accepts the same wire formats — verified against the published TypeScript package in **both directions** (see [Interoperability](#interoperability)).
+The crate mirrors the TypeScript source tree one-to-one (`index.ts` → `lib.rs`/`mod.rs`, `types.ts` → serde structs), uses `zeroize` where TS used `secureFill`, and produces/accepts the same wire formats — verified against the published TypeScript package in **both directions** (see [Interoperability](#interoperability)). New `.mjksmap` output uses container version 2 with CBOR-native byte strings for hashes, public keys, signatures, and nested envelope digests; the reader retains support for legacy version 1 JSON manifests.
 
 ## Quick start
 
@@ -284,8 +284,8 @@ input file requires a format handler to derive its canonical content.
 ### Resource and untrusted-input limits
 
 - Hash workers accept chunk sizes from **64 KiB to 64 MiB** (1 MiB by default). Reader-based hashing has no implicit file-size ceiling; set `max_bytes` to impose one.
-- MJKSMAP parsing and serialization cap the JSON payload at **16 MiB**, the manifest at **10,000 entries**, and normalized paths at **4,096 UTF-16 code units**. Traversal segments, control/bidirectional override characters, normalized-path collisions, malformed UTF-8, trailing bytes, and nonzero reserved header values are rejected.
-- MJKSMAP content hashes must be canonical Base64 SHA-256 digests. Optional sizes must be non-negative integers, MIME metadata is bounded and rejects control characters, and embedded envelopes are validated.
+- MJKSMAP v2 CBOR payloads are capped at **16 MiB**; the JSON compatibility API allows up to **24 MiB** for Base64 expansion, while legacy v1 JSON containers retain the **16 MiB** wire limit. The manifest is capped at **10,000 entries**, and normalized paths at **4,096 UTF-16 code units**. Traversal segments, control/bidirectional override characters, normalized-path collisions, malformed JSON/CBOR, trailing data, and nonzero reserved header values are rejected.
+- The public JSON model uses canonical Base64 SHA-256 content hashes; MJKSMAP v2 stores those digests and nested envelope binary fields as raw CBOR byte strings. Optional sizes are non-negative integers, MIME metadata is bounded and rejects control characters, and embedded envelopes are validated.
 - Envelope JSON/CBOR and MJKSIG inputs retain the **16 MiB** parser ceiling. Envelope builders run the same schema and aggregate-size validation as parsers.
 
 The normal streaming regression suite hashes a virtual **32 MiB** reader source using multiple chunk sizes without allocating a 32 MiB source buffer. A 10 GiB virtual-reader stress test is available but intentionally ignored by default:

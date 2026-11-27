@@ -87,11 +87,25 @@ pub const MJKSIG_FILE_EXTENSION: &str = ".mjksig";
 
 // ─── MJKSMAP binary format ───────────────────────────────────────────────────
 //
-// Layout: [magic(7)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload JSON]
+// Layout: [magic(7)][version(1)][reserved(1)][payloadLen(4, BE u32)][payload]
+//
+// Version 1: UTF-8 JSON payload (legacy; read-only compatibility).
+// Version 2: CBOR payload (current writer and preferred format).
+//
+// The manifest schema inside both payloads remains version 1. The container
+// version selects only the payload encoding; it does not change map semantics.
 pub const MJKSMAP_MAGIC: [u8; 7] = [0x4d, 0x4a, 0x4b, 0x53, 0x4d, 0x41, 0x50]; // "MJKSMAP"
 pub const MJKSMAP_MAGIC_LEN: usize = MJKSMAP_MAGIC.len();
-pub const MJKSMAP_VERSION: u8 = 0x01;
-pub const MJKSMAP_SUPPORTED_VERSIONS: [u8; 1] = [MJKSMAP_VERSION];
+/// Legacy MJKSMAP container encoding: UTF-8 JSON.
+pub const MJKSMAP_JSON_VERSION: u8 = 0x01;
+/// Current MJKSMAP container encoding: CBOR.
+pub const MJKSMAP_CBOR_VERSION: u8 = 0x02;
+/// Version emitted by new MJKSMAP writers.
+pub const MJKSMAP_VERSION: u8 = MJKSMAP_CBOR_VERSION;
+/// Schema version stored inside the JSON/CBOR manifest model.
+pub const MJKSMAP_SCHEMA_VERSION: u8 = 0x01;
+/// Versions accepted by MJKSMAP readers.
+pub const MJKSMAP_SUPPORTED_VERSIONS: [u8; 2] = [MJKSMAP_JSON_VERSION, MJKSMAP_CBOR_VERSION];
 pub const MJKSMAP_HEADER_LEN: usize = MJKSMAP_MAGIC_LEN + 1 + 1 + 4; // 13
 
 pub const MJKSMAP_MEDIA_TYPE: &str = "application/vnd.majikah.mjksmap";
@@ -109,8 +123,11 @@ pub const MAX_TSA_FIELD_CHARS: usize = 256;
 pub const MAX_SIGNATURES_PER_ENVELOPE: usize = 1024;
 pub const MAX_ALLOWLIST_ENTRIES: usize = 1024;
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024 * 1024;
-/// Maximum serialized MJKSMAP manifest payload (header excluded).
+/// Maximum serialized MJKSMAP binary payload (header excluded).
 pub const MAX_MJKSMAP_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum JSON model input size. Base64 expands raw binary fields, so the
+/// compatibility/API representation needs headroom over the CBOR wire limit.
+pub const MAX_MJKSMAP_JSON_BYTES: usize = 24 * 1024 * 1024;
 /// Maximum entries accepted in one MJKSMAP manifest.
 pub const MAX_MJKSMAP_ENTRIES: usize = 10_000;
 /// Maximum normalized logical path length in UTF-16 code units.
