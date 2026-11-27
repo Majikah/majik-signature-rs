@@ -49,9 +49,7 @@ fn container(payload: &[u8], reserved: u8, declared: Option<u32>, suffix: &[u8])
 
 #[test]
 fn round_trip_preserves_valid_manifest_and_normalized_paths() {
-    let map = MajikSignatureMap::empty()
-        .with_entry(entry(r"C:\docs\report.txt"))
-        .unwrap();
+    let map = MajikSignatureMap::empty().with_entry(entry(r"C:\docs\report.txt")).unwrap();
     let bytes = map.to_mjksmap_bytes();
     let restored = MajikSignatureMap::from_mjksmap(&bytes).unwrap();
     assert_eq!(restored.size(), 1);
@@ -76,7 +74,10 @@ fn rejects_duplicate_paths_after_normalization() {
         serde_json::json!({"path": r"C:\docs\report.txt", "contentHash": hash.clone(), "size":0, "mimeType":"text/plain", "envelope":env.clone()}),
         serde_json::json!({"path": "docs/report.txt", "contentHash": hash, "size":0, "mimeType":"text/plain", "envelope":env}),
     ]);
-    assert!(MajikSignatureMap::from_json_value(input).unwrap_err().to_string().contains("Duplicate normalized path"));
+    assert!(MajikSignatureMap::from_json_value(input)
+        .unwrap_err()
+        .to_string()
+        .contains("Duplicate normalized path"));
 }
 
 #[test]
@@ -103,13 +104,18 @@ fn rejects_manifest_entry_count_before_building_indices() {
     let hash = bytes_to_base64(&[0x2a; 32]);
     let env = serde_json::to_value(empty_envelope()).unwrap();
     let entries = (0..=MAX_MJKSMAP_ENTRIES)
-        .map(|index| serde_json::json!({
-            "path": format!("docs/{index}.txt"),
-            "contentHash": hash.clone(),
-            "envelope": env.clone()
-        }))
+        .map(|index| {
+            serde_json::json!({
+                "path": format!("docs/{index}.txt"),
+                "contentHash": hash.clone(),
+                "envelope": env.clone()
+            })
+        })
         .collect();
-    assert!(MajikSignatureMap::from_json_value(map_json(entries)).unwrap_err().to_string().contains("exceeds the limit"));
+    assert!(MajikSignatureMap::from_json_value(map_json(entries))
+        .unwrap_err()
+        .to_string()
+        .contains("exceeds the limit"));
 }
 
 #[test]
@@ -119,13 +125,21 @@ fn enforces_binary_header_length_utf8_and_payload_limits() {
     let payload = &valid[MJKSMAP_HEADER_LEN..];
 
     assert!(MajikSignatureMap::from_mjksmap(&container(payload, 1, None, &[]))
-        .unwrap_err().to_string().contains("reserved byte"));
+        .unwrap_err()
+        .to_string()
+        .contains("reserved byte"));
     assert!(MajikSignatureMap::from_mjksmap(&container(payload, 0, None, &[0]))
-        .unwrap_err().to_string().contains("trailing bytes"));
+        .unwrap_err()
+        .to_string()
+        .contains("trailing bytes"));
     assert!(MajikSignatureMap::from_mjksmap(&container(payload, 0, Some(payload.len() as u32 + 1), &[]))
-        .unwrap_err().to_string().contains("exceeds buffer"));
+        .unwrap_err()
+        .to_string()
+        .contains("exceeds buffer"));
     assert!(MajikSignatureMap::from_mjksmap(&container(&[0xff], 0, None, &[]))
-        .unwrap_err().to_string().contains("UTF-8"));
+        .unwrap_err()
+        .to_string()
+        .contains("UTF-8"));
 
     let oversized_json = " ".repeat(MAX_MJKSMAP_BYTES + 1);
     assert!(MajikSignatureMap::from_json_str(&oversized_json).is_err());
