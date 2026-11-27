@@ -168,12 +168,9 @@ fn detached_batch_reader_signing_matches_buffered_signatures() {
         },
     ];
 
-    let result = MajikSignature::sign_batch_detached_stream(
-        &mut files,
-        &key,
-        None,
-        BatchStreamingOptions::default(),
-    ).unwrap();
+    let result =
+        MajikSignature::sign_batch_detached_stream(&mut files, &key, None, BatchStreamingOptions::default())
+            .unwrap();
 
     let BatchSignResult::Map { map, map_blob, failures } = result else {
         panic!("expected MJKSMAP result");
@@ -212,17 +209,15 @@ fn detached_batch_reader_signing_can_continue_after_a_file_failure() {
             mime_type: None,
         },
     ];
-    let options = BatchSignOptions {
-        continue_on_error: true,
-        ..BatchSignOptions::default()
-    };
+    let options = BatchSignOptions { continue_on_error: true, ..BatchSignOptions::default() };
 
     let result = MajikSignature::sign_batch_detached_stream(
         &mut files,
         &key,
         Some(&options),
         BatchStreamingOptions::default(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let BatchSignResult::Map { map, failures, .. } = result else {
         panic!("expected MJKSMAP result");
