@@ -388,10 +388,12 @@ impl Read for RepeatingReader {
 fn expected_repeating_digest(total_bytes: u64, pattern: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     let mut remaining = total_bytes;
+    let mut offset = 0usize;
     while remaining > 0 {
-        let count = remaining.min(pattern.len() as u64) as usize;
-        hasher.update(&pattern[..count]);
+        let count = remaining.min((pattern.len() - offset) as u64) as usize;
+        hasher.update(&pattern[offset..offset + count]);
         remaining -= count as u64;
+        offset = (offset + count) % pattern.len();
     }
     hasher.finalize().into()
 }
