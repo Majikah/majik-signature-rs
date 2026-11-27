@@ -889,6 +889,7 @@ impl MajikSignatureEnvelope {
                 "Unrecognised signature envelope format — expected MajikSignatureEnvelopeJSON or MajikSignatureJSON",
             ));
         };
+        validate_envelope_serialized_size(&promoted)?;
         validate_shape(&promoted)?;
         let data: MultiSigEnvelope = serde_json::from_value(promoted).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Embedded signature payload is malformed", e)
