@@ -2,6 +2,7 @@ mod common;
 
 use common::new_key;
 use majik_signature::*;
+use sha2::{Digest, Sha256};
 use std::io::{self, Read};
 use std::sync::atomic::AtomicBool;
 
@@ -354,4 +355,122 @@ fn ed25519_scalar_malleability_is_rejected() {
 
     let result = MajikSignature::verify(content, &altered, &public_keys, None).unwrap();
     assert!(!result.valid);
+}
+
+
+struct RepeatingReader {
+    remaining: u64,
+    pattern: Vec<u8>,
+    offset: usize,
+}
+
+impl RepeatingReader {
+    fn new(total_bytes: u64, pattern: Vec<u8>) -> Self {
+        Self { remaining: total_bytes, pattern, offset: 0 }
+    }
+}
+
+impl Read for RepeatingReader {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() || self.remaining == 0 {
+            return Ok(0);
+        }
+        let count = output.len().min(self.remaining.min(usize::MAX as u64) as usize);
+        for (index, byte) in output[..count].iter_mut().enumerate() {
+            *byte = self.pattern[(self.offset + index) % self.pattern.len()];
+        }
+        self.offset = (self.offset + count) % self.pattern.len();
+        self.remaining -= count as u64;
+        Ok(count)
+    }
+}
+
+fn expected_repeating_digest(total_bytes: u64, pattern: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    let mut remaining = total_bytes;
+    while remaining > 0 {
+        let count = remaining.min(pattern.len() as u64) as usize;
+        hasher.update(&pattern[..count]);
+        remaining -= count as u64;
+    }
+    hasher.finalize().into()
+}
+
+#[test]
+fn hashes_virtual_large_files_with_multiple_chunk_sizes_without_full_file_allocation() {
+    let total_bytes = 32 * 1024 * 1024 + 37;
+    let pattern: Vec<u8> = (0..(1024 * 1024 + 113))
+        .map(|index| ((index * 31 + (index >> 8) * 17 + 0x5a) & 0xff) as u8)
+        .collect();
+    let expected = expected_repeating_digest(total_bytes, &pattern);
+
+    for chunk_size in [
+        MIN_HASH_CHUNK_SIZE,
+        256 * 1024,
+        1024 * 1024,
+        4 * 1024 * 1024,
+        16 * 1024 * 1024,
+    ] {
+        let mut reader = RepeatingReader::new(total_bytes, pattern.clone());
+        let mut options = StreamingHashOptions {
+            chunk_size,
+            max_bytes: Some(total_bytes),
+            total_bytes: Some(total_bytes),
+            ..StreamingHashOptions::default()
+        };
+        let result = hash_reader(&mut reader, &mut options).unwrap();
+        assert_eq!(result.bytes_processed, total_bytes, "chunk_size={chunk_size}");
+        assert_eq!(result.digest, expected, "chunk_size={chunk_size}");
+    }
+}
+
+struct FailingReader {
+    emitted: bool,
+}
+
+impl Read for FailingReader {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if !self.emitted {
+            self.emitted = true;
+            let count = output.len().min(64 * 1024);
+            output[..count].fill(0x5a);
+            return Ok(count);
+        }
+        Err(io::Error::new(io::ErrorKind::Other, "synthetic source failure"))
+    }
+}
+
+#[test]
+fn returns_read_errors_and_invalid_configuration_without_panicking() {
+    let mut reader = FailingReader { emitted: false };
+    let mut options = StreamingHashOptions::default();
+    assert!(hash_reader(&mut reader, &mut options).is_err());
+
+    let bytes = b"invalid chunk size";
+    let mut reader = io::Cursor::new(bytes);
+    let mut options = StreamingHashOptions { chunk_size: 0, ..StreamingHashOptions::default() };
+    assert!(hash_reader(&mut reader, &mut options).is_err());
+}
+
+#[test]
+#[ignore = "Opt-in real multi-gigabyte CPU stress; set MAJIK_STRESS_BYTES and run with --ignored"]
+fn streams_a_virtual_ten_gib_file_with_bounded_memory() {
+    let total_bytes = std::env::var("MAJIK_STRESS_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(10 * 1024 * 1024 * 1024);
+    assert!(total_bytes > 0);
+
+    let pattern = vec![0x5a; 1024 * 1024];
+    let expected = expected_repeating_digest(total_bytes, &pattern);
+    let mut reader = RepeatingReader::new(total_bytes, pattern);
+    let mut options = StreamingHashOptions {
+        chunk_size: 8 * 1024 * 1024,
+        total_bytes: Some(total_bytes),
+        max_bytes: Some(total_bytes),
+        ..StreamingHashOptions::default()
+    };
+    let result = hash_reader(&mut reader, &mut options).unwrap();
+    assert_eq!(result.bytes_processed, total_bytes);
+    assert_eq!(result.digest, expected);
 }
