@@ -8,6 +8,7 @@ const EBML_MAGIC: [u8; 4] = [0x1a, 0x45, 0xdf, 0xa3];
 const MIME: &[&str] = &["video/x-matroska", "video/webm", "audio/webm", "audio/x-matroska"];
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in Matroska containers.
 pub struct MkvHandler;
 
 impl FormatHandler for MkvHandler {
