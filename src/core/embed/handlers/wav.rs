@@ -11,6 +11,7 @@ struct Chunk<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in WAV metadata chunks.
 pub struct WavHandler;
 
 impl WavHandler {

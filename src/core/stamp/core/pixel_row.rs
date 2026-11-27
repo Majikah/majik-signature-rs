@@ -10,6 +10,7 @@ const HEADER_SIZE: usize = 20;
 const MAX_ROWS: usize = 32;
 
 #[derive(Debug, Clone)]
+/// Modified image bytes and dimensions after appending the full envelope as pixel rows.
 pub struct PixelRowEmbedResult {
     pub pixels: Vec<u8>,
     pub width: usize,
@@ -18,6 +19,7 @@ pub struct PixelRowEmbedResult {
 }
 
 #[derive(Debug, Clone)]
+/// Extracted per-signer envelope and original image dimensions after removing appended rows.
 pub struct PixelRowExtractResult {
     pub signature_json: String,
     pub rows_found: usize,
@@ -31,6 +33,7 @@ fn js_round_div(sum: u64, n: u64) -> u8 {
     ((sum as f64 / n as f64) + 0.5).floor() as u8
 }
 
+/// Append the full hybrid signer envelope as visually blended RGB rows at the image bottom.
 pub fn pixel_row_embed(
     pixels: &[u8],
     width: usize,
@@ -88,6 +91,7 @@ pub fn pixel_row_embed(
     Ok(PixelRowEmbedResult { pixels: new_pixels, width, height: new_height, rows_added: rows_needed })
 }
 
+/// Detect and remove an appended pixel-row envelope, returning None when no valid header is found.
 pub fn pixel_row_extract(pixels: &[u8], width: usize, height: usize) -> Option<PixelRowExtractResult> {
     let bytes_per_row = width * 3;
     let max_candidates = MAX_ROWS.min(height.saturating_sub(1));
@@ -170,6 +174,7 @@ pub fn pixel_row_extract(pixels: &[u8], width: usize, height: usize) -> Option<P
     None
 }
 
+/// Check whether an image buffer contains a recognizable pixel-row signature marker; does not verify its signature.
 pub fn pixel_row_has_signature(pixels: &[u8], width: usize, height: usize) -> bool {
     pixel_row_extract(pixels, width, height).is_some()
 }

@@ -26,6 +26,10 @@ pub type MajikSignatureEnvelopeJSON = MultiSigEnvelope;
 /// The serialized, self-describing form of one signer's signature (TS `MajikSignatureJSON`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// JSON-compatible representation of one signer’s hybrid signature record.
+///
+/// Binary values use canonical Base64 strings in this logical model; CBOR wire
+/// adapters convert those values to native byte strings for container v2.
 pub struct MajikSignatureJSON {
     /// Always `1`.
     pub version: u8,
@@ -54,6 +58,7 @@ pub struct MajikSignatureJSON {
 /// Wire/storage-optimized form: public keys stripped (TS `MajikSignatureCompactJSON`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Compact/abbreviated JSON representation used by the compatibility API.
 pub struct MajikSignatureCompactJSON {
     /// Always `1`.
     pub v: u8,
@@ -86,6 +91,7 @@ pub enum TsaDigestScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Algorithm and digest value requested from or returned by a timestamp authority.
 pub struct TsaDigest {
     /// Always `"SHA-256"`.
     pub algorithm: String,
@@ -97,6 +103,7 @@ pub struct TsaDigest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Claimed timestamp-authority identity embedded in a signed TSA payload.
 pub struct MajikTsaIdentity {
     pub id: String,
     pub signer_fingerprint: String,
@@ -112,11 +119,13 @@ pub struct MajikTsaPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Digest descriptor sent by an application to its timestamp service.
 pub struct MajikTsaRequest {
     pub digest: TsaDigest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Timestamp token containing the TSA payload and its own hybrid Majik Signature record.
 pub struct MajikTimestamp {
     /// Always `1`.
     pub version: u8,
@@ -129,6 +138,7 @@ pub struct MajikTimestamp {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Public-key identity permitted by an envelope allowlist.
 pub struct ExpectedSigner {
     pub signer_id: MajikKeyFingerprint,
     pub ed_public_key: String,
@@ -137,6 +147,7 @@ pub struct ExpectedSigner {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Logical multi-signer envelope containing signatures and optional allowlist, seal, anchors, and revision metadata.
 pub struct MultiSigEnvelope {
     /// Always `1`.
     pub version: u8,
@@ -186,6 +197,7 @@ pub struct SignOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Result of checking one signature against content and an expected public-key identity.
 pub struct VerificationResult {
     pub valid: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +220,7 @@ pub struct VerificationResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Structural result of recomputing and comparing an envelope seal commitment.
 pub struct SealVerificationResult {
     pub valid: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -220,6 +233,7 @@ pub struct SealVerificationResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Read-only description of the seal currently attached to an envelope.
 pub struct SealInfo {
     pub seal_hash: String,
     pub seal_timestamp: ISODateString,
@@ -228,6 +242,7 @@ pub struct SealInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Display-oriented information about one signer in an envelope; it is not a verification result.
 pub struct SignatoryInfo {
     pub signer_id: MajikKeyFingerprint,
     pub ed_public_key: String,
@@ -238,6 +253,7 @@ pub struct SignatoryInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// Grouped signatory information for signed, pending, or filtered participants.
 pub struct SignatoriesResult {
     pub all: Vec<SignatoryInfo>,
     pub signed: Vec<SignatoryInfo>,
@@ -246,6 +262,7 @@ pub struct SignatoriesResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// Selects which categories of signers are returned by envelope status queries.
 pub enum SignatoriesFilter {
     All,
     Signed,
@@ -254,6 +271,7 @@ pub enum SignatoriesFilter {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Summary of envelope state, including signer counts, allowlist, seal, and revision metadata.
 pub struct EnvelopeInfo {
     pub is_multi_sig: bool,
     pub has_multiple_signatories: bool,
@@ -269,17 +287,20 @@ pub struct EnvelopeInfo {
 // ─── Embed options / handler interface ───────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
+/// Format-handler options controlling embedded envelope encoding and fallback behavior.
 pub struct EmbedOptions {
     pub mime_type: Option<String>,
     pub force_fallback: bool,
 }
 
 #[derive(Debug, Clone, Default)]
+/// Format selection hints for extracting an embedded envelope from file bytes.
 pub struct ExtractOptions {
     pub mime_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
+/// Options used when checking an envelope embedded in a file.
 pub struct VerifyEmbeddedOptions {
     pub mime_type: Option<String>,
     pub expected_signer_id: Option<String>,
@@ -301,6 +322,7 @@ pub trait FormatHandler: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
+/// Embedded file bytes and the handler/MIME metadata used to produce them.
 pub struct EmbedResult {
     /// TS `Blob` → raw bytes.
     pub blob: Vec<u8>,
@@ -312,6 +334,10 @@ pub struct EmbedResult {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// One logical file entry in a MJKSMAP manifest.
+///
+/// `content_hash` is a canonical Base64 SHA-256 digest in the JSON model and
+/// a 32-byte CBOR byte string in MJKSMAP v2.
 pub struct MjksMapEntry {
     pub path: String,
     pub content_hash: String,
@@ -324,6 +350,8 @@ pub struct MjksMapEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Schema-v1 logical JSON model for a MJKSMAP batch manifest.
+/// The binary container version is separate: writers emit v2 CBOR and readers also accept v1 JSON.
 pub struct MjksMapJSON {
     /// Always `1`.
     pub version: u8,
@@ -332,6 +360,7 @@ pub struct MjksMapJSON {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Path lookup result, including whether an optional supplied file hash matched.
 pub struct MjksMapFindResult {
     pub found: bool,
     pub entry: Option<MjksMapEntry>,
@@ -339,6 +368,7 @@ pub struct MjksMapFindResult {
 }
 
 #[derive(Debug, Clone, Default)]
+/// In-memory file input used by non-streaming batch detached signing.
 pub struct BatchFileInput {
     pub path: String,
     /// File bytes (TS `Blob`).
@@ -348,6 +378,7 @@ pub struct BatchFileInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Selects a single MJKSMAP result or one detached MJKSIG per input file.
 pub enum BatchSignMode {
     #[default]
     Map,
@@ -355,6 +386,7 @@ pub enum BatchSignMode {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Options shared by in-memory and streaming batch signing.
 pub struct BatchSignOptions {
     pub content_type: Option<String>,
     pub timestamp: Option<ISODateString>,
@@ -365,12 +397,14 @@ pub struct BatchSignOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Per-file batch-signing failure returned when continue-on-error is enabled.
 pub struct BatchSignFailure {
     pub path: String,
     pub error: String,
 }
 
 #[derive(Debug, Clone, Default)]
+/// In-memory file input for resolving and verifying a MJKSMAP entry.
 pub struct BatchVerifyInput {
     pub path: String,
     pub blob: Vec<u8>,
@@ -378,6 +412,7 @@ pub struct BatchVerifyInput {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Per-file resolution and verification outcome for MJKSMAP batch verification.
 pub enum FileVerifyStatus {
     Verified,
     Invalid,
@@ -386,6 +421,7 @@ pub enum FileVerifyStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Detailed result for one file processed against a MJKSMAP manifest.
 pub struct FileVerifyResult {
     pub path: String,
     pub status: FileVerifyStatus,
@@ -395,6 +431,7 @@ pub struct FileVerifyResult {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Controls missing-file handling and MIME hints during batch verification.
 pub struct BatchVerifyOptions {
     pub expected_signer_id: Option<MajikKeyFingerprint>,
     pub now: Option<jiff::Timestamp>,
@@ -402,6 +439,7 @@ pub struct BatchVerifyOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Aggregate counts and overall validity derived from per-file verification results.
 pub struct BatchVerifySummary {
     pub total: usize,
     pub verified: usize,
@@ -413,6 +451,7 @@ pub struct BatchVerifySummary {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Describes whether a MJKSMAP file matched its path, was relocated by hash, was tampered, or was absent.
 pub enum MjksMapResolveStatus {
     PathMatch,
     PathTampered,
@@ -421,6 +460,7 @@ pub enum MjksMapResolveStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Entry resolution result, including the original path when a matching file was relocated.
 pub struct MjksMapResolveResult {
     pub status: MjksMapResolveStatus,
     pub entry: Option<MjksMapEntry>,
@@ -431,6 +471,7 @@ pub struct MjksMapResolveResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Metadata-only entry in an append-only document revision chain.
 pub struct FileVersion {
     pub version: u32,
     pub timestamp: ISODateString,
@@ -453,6 +494,7 @@ pub struct RevisionCommitmentResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Structural and cryptographic verification summary for an embedded or detached revision chain.
 pub struct FileChainVerification {
     pub latest: VerificationResult,
     pub history: Vec<RevisionCommitmentResult>,
@@ -460,6 +502,7 @@ pub struct FileChainVerification {
 }
 
 #[derive(Debug, Clone)]
+/// Server-provided inputs used to sign a file for one SignRoom session attempt.
 pub struct SessionFileSignOptions {
     pub session_context: MajikSessionSigningContext,
     pub content_type: Option<String>,
@@ -523,6 +566,7 @@ pub struct SessionFileVerifyOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Verification result for one timestamp token associated with a session signature.
 pub struct SessionFileTsaVerificationResult {
     pub signer_id: MajikKeyFingerprint,
     pub present: bool,
@@ -533,6 +577,7 @@ pub struct SessionFileTsaVerificationResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Combined result for SignRoom participant, revision-chain, and TSA verification.
 pub struct SessionFileVerificationResult {
     pub valid: bool,
     pub results: Vec<VerificationResult>,
@@ -543,6 +588,7 @@ pub struct SessionFileVerificationResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Outcome when matching a supplied historical revision to a recorded file-version entry.
 pub enum RevisionCheckStatus {
     Verified,
     Unmatched,
@@ -551,6 +597,7 @@ pub enum RevisionCheckStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Per-version outcome returned when checking an archived revision set.
 pub struct RevisionCheckResult {
     pub version: u32,
     pub status: RevisionCheckStatus,
@@ -559,6 +606,7 @@ pub struct RevisionCheckResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Complete verification result for the supplied historical revisions and final document.
 pub struct RevisionSetVerification {
     pub all_valid: bool,
     pub is_complete_set: bool,
@@ -571,6 +619,7 @@ use crate::core::envelope::MajikSignatureEnvelope;
 use crate::core::mjksmap::MajikSignatureMap;
 
 #[derive(Debug, Clone)]
+/// Extracted envelope and metadata describing the format handler that found it.
 pub struct ExtractResult {
     pub envelope: MajikSignatureEnvelope,
     pub handler: String,
@@ -593,6 +642,7 @@ pub enum BatchSignResult {
 }
 
 #[derive(Debug, Clone)]
+/// Detached MJKSIG sidecar bytes paired with their source file path.
 pub struct SeparateSignature {
     pub path: String,
     pub blob: Vec<u8>,

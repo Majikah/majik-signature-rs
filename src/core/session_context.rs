@@ -5,9 +5,11 @@ use serde::Serialize;
 use crate::core::constants::MAJIK_SESSION_CONTEXT_DOMAIN;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
+use crate::core::text::trim_ecmascript_whitespace;
 
 /// Authoritative values used to bind a SignRoom signature to a signing attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Authoritative session, one-time challenge, and immutable policy values committed by a SignRoom signature.
 pub struct MajikSessionSigningContext {
     pub session_id: String,
     pub challenge_id: String,
@@ -25,7 +27,7 @@ struct CanonicalSessionContext<'a> {
 }
 
 fn validate_identifier(value: &str, field: &str) -> MajikSignatureResult<()> {
-    if value.is_empty() || value.encode_utf16().count() > 256 || value.trim() != value {
+    if value.is_empty() || value.encode_utf16().count() > 256 || trim_ecmascript_whitespace(value) != value {
         return Err(MajikSignatureError::validation(
             format!(
                 "{field} must be a non-empty string of at most 256 characters without surrounding whitespace"
@@ -77,4 +79,16 @@ pub fn build_session_context_hash(context: &MajikSessionSigningContext) -> Majik
     bytes.extend_from_slice(MAJIK_SESSION_CONTEXT_DOMAIN.as_bytes());
     bytes.extend_from_slice(&body);
     Ok(bytes_to_base64(&hash_content(&bytes)))
+}
+
+#[cfg(test)]
+mod identifier_whitespace_tests {
+    use super::validate_identifier;
+
+    #[test]
+    fn matches_ecmascript_trim_for_bom_and_next_line() {
+        assert!(validate_identifier("\u{0085}session\u{0085}", "sessionId").is_ok());
+        assert!(validate_identifier("\u{feff}session", "sessionId").is_err());
+        assert!(validate_identifier("session\u{feff}", "challengeId").is_err());
+    }
 }

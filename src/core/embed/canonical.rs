@@ -8,11 +8,13 @@ use crate::core::errors::MajikSignatureResult;
 use crate::core::types::FormatHandler;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of checking whether file bytes are already in the handler's canonical unsigned form.
 pub enum CanonicalResult {
     Ok { original: Vec<u8> },
     Err { reason: String },
 }
 
+/// Check that the supplied bytes match the handler's canonical representation for signing.
 pub fn assert_canonical(handler: &dyn FormatHandler, bytes: &[u8], raw: &str) -> CanonicalResult {
     let attempt = (|| -> MajikSignatureResult<(Vec<u8>, Vec<u8>)> {
         let original = handler.strip(bytes)?;
@@ -44,12 +46,14 @@ pub fn assert_canonical(handler: &dyn FormatHandler, bytes: &[u8], raw: &str) ->
     CanonicalResult::Ok { original }
 }
 
+/// Handler and extraction options for preparing canonical bytes for a detached signature.
 pub struct DetachedPrepareOptions<'a> {
     pub require_canonical: bool,
     /// Throws if `raw` is not a valid envelope.
     pub validate_envelope: &'a dyn Fn(&str) -> MajikSignatureResult<()>,
 }
 
+/// Strip any embedded envelope using the selected handler and return bytes suitable for detached signing.
 pub fn prepare_detached_bytes(
     handler: &dyn FormatHandler,
     bytes: &[u8],
@@ -79,6 +83,7 @@ pub fn prepare_detached_bytes(
     Ok(CanonicalResult::Ok { original: stripped })
 }
 
+/// Return a human-readable reason why a handler cannot find a signature in the supplied bytes.
 pub fn no_signature_reason(handler: &dyn FormatHandler, bytes: &[u8]) -> String {
     handler.diagnose(bytes).unwrap_or_else(|| "No embedded signature found".to_string())
 }

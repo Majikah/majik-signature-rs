@@ -8,6 +8,7 @@ use crate::core::time::{parse_iso_millis, to_iso_string};
 
 const MAGIC: [u8; 4] = [0x4d, 0x53, 0x49, 0x47]; // "MSIG"
 const VERSION: u16 = 1;
+/// Fixed encoded byte length of the experimental DCT-layer signature stub.
 pub const STUB_SIZE: usize = 150;
 
 fn hex_to_bytes(hex: &str, expected_len: usize) -> Result<Vec<u8>, String> {
@@ -20,6 +21,7 @@ fn hex_to_bytes(hex: &str, expected_len: usize) -> Result<Vec<u8>, String> {
         .collect()
 }
 
+/// Encode the compact DCT-layer stub into its fixed-size binary representation.
 pub fn serialize_stub(stub: &ImageSignatureStub) -> Result<Vec<u8>, String> {
     let mut buf = vec![0u8; STUB_SIZE];
     let mut o = 0;
@@ -46,6 +48,7 @@ pub fn serialize_stub(stub: &ImageSignatureStub) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Decode a fixed-size DCT-layer stub, returning `None` when its bytes are malformed.
 pub fn deserialize_stub(buf: &[u8]) -> Option<ImageSignatureStub> {
     if buf.len() < STUB_SIZE || buf[..4] != MAGIC {
         return None;

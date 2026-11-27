@@ -4,12 +4,14 @@ use crate::core::embed::fallback::FallbackHandler;
 use crate::core::types::FormatHandler;
 
 #[derive(Default)]
+/// Registry of available format handlers and the selection rules used by file orchestration.
 pub struct FormatHandlerRegistry {
     handlers: Vec<Box<dyn FormatHandler>>,
     fallback: FallbackHandler,
 }
 
 impl FormatHandlerRegistry {
+    /// Create a registry populated with the built-in format handlers.
     pub fn new() -> Self {
         Self::default()
     }
@@ -30,6 +32,7 @@ impl FormatHandlerRegistry {
         &self.fallback
     }
 
+    /// Return the identifiers of all handlers registered in this instance.
     pub fn list_handlers(&self) -> Vec<String> {
         let mut names: Vec<String> = self.handlers.iter().map(|h| h.name().to_string()).collect();
         names.push(self.fallback.name().to_string());

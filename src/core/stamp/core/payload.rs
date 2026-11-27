@@ -15,6 +15,7 @@ struct Canonical<'a> {
     v: u8,
 }
 
+/// Build the domain-separated canonical bytes signed by the compact image-stamp Ed25519 proof.
 pub fn build_image_signing_payload(fields: &ImageSigningPayloadFields<'_>) -> Vec<u8> {
     let obj = Canonical { id: fields.signer_id, p_hash: fields.p_hash, ts: fields.timestamp, v: 1 };
     let mut out = DOMAIN_PREFIX.as_bytes().to_vec();

@@ -28,11 +28,13 @@ pub const MAX_UNZIPPED_BYTES: u64 = 512 * 1024 * 1024;
 
 /// An ordered `name → bytes` map (a JS object with string keys, in insertion order).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// In-memory representation of a ZIP archive's file entries, preserving entry order and bytes.
 pub struct ZipEntries {
     entries: Vec<(String, Vec<u8>)>,
 }
 
 impl ZipEntries {
+    /// Create an empty ZIP-entry collection.
     pub fn new() -> Self {
         Self::default()
     }
@@ -47,18 +49,23 @@ impl ZipEntries {
     pub fn remove(&mut self, name: &str) {
         self.entries.retain(|(n, _)| n != name);
     }
+    /// Return the uncompressed bytes for a named entry, if present.
     pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.entries.iter().find(|(n, _)| n == name).map(|(_, d)| d.as_slice())
     }
+    /// Check whether a named ZIP entry exists.
     pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
+    /// Iterate over archive entries in their stored order.
     pub fn iter(&self) -> impl Iterator<Item = &(String, Vec<u8>)> {
         self.entries.iter()
     }
+    /// Return the number of entries in the collection.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+    /// Return whether the collection contains no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

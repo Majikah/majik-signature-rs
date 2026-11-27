@@ -12,6 +12,7 @@ struct Frame<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in MP3 ID3 tags.
 pub struct Mp3Handler;
 
 fn is_id3(bytes: &[u8]) -> bool {

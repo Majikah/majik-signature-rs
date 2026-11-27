@@ -5,6 +5,7 @@ use crate::core::errors::MajikSignatureResult;
 use crate::core::types::FormatHandler;
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Generic format handler that stores the versioned embedded envelope in a trailing binary block.
 pub struct FallbackHandler;
 
 impl FormatHandler for FallbackHandler {

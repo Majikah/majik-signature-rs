@@ -22,6 +22,7 @@ struct Parsed<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in MP4/ISO-BMFF containers.
 pub struct Mp4Handler;
 
 impl Mp4Handler {

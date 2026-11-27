@@ -1,8 +1,11 @@
 //! Port of `core/stamp/core/reed-solomon.ts` — RS(225,150) over GF(2^8), primitive poly `0x11d`.
 //! Hand-ported (not a crate) so the codeword layout and generator roots match TS exactly.
 
+/// Number of data bytes in the fixed-size error-corrected DCT stub payload.
 pub const RS_DATA_BYTES: usize = 150; // must match STUB_SIZE
+/// Number of parity bytes used to correct errors in the compact DCT stamp block.
 pub const RS_ECC_BYTES: usize = 75; // ~50% overhead → corrects up to 37 byte errors
+/// Encoded compact-stamp block length, including payload and parity bytes.
 pub const RS_TOTAL_BYTES: usize = RS_DATA_BYTES + RS_ECC_BYTES; // 225
 
 const PRIMITIVE_POLY: u32 = 0x11d;

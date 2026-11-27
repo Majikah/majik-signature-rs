@@ -6,6 +6,7 @@ use super::strategy::HashStrategy;
 
 /// Progress after a complete read chunk has been added to the digest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Progress snapshot emitted after a chunk has been incorporated into the SHA-256 state.
 pub struct StreamingHashProgress {
     pub bytes_processed: u64,
     pub total_bytes: Option<u64>,
@@ -57,6 +58,7 @@ pub struct StreamingBatchVerifyInput<'a> {
 
 /// Progress associated with one file in a streaming batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Progress information for one file inside a sequential streaming batch operation.
 pub struct StreamingBatchProgress {
     pub file_index: usize,
     pub total_files: usize,
@@ -86,6 +88,7 @@ impl Default for BatchStreamingOptions<'_> {
 
 /// Result of hashing one complete logical byte sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Final digest, byte count, and selected strategy returned by a streaming hash operation.
 pub struct StreamingHashResult {
     /// Raw SHA-256 digest. Identical to the existing one-shot hash for the same bytes.
     pub digest: [u8; 32],

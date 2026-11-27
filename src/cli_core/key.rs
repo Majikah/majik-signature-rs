@@ -6,6 +6,7 @@ use majik_key::MajikKey;
 
 use crate::cli_core::io::{err, read_bytes, resolve_cli_path, CliOutcome};
 
+/// MajikKey handle imported by CLI commands for signing operations.
 pub type LoadedMajikKey = MajikKey;
 
 /// `MAJIK_KEY_PASSPHRASE`, else an echo-less TTY prompt.
@@ -32,6 +33,7 @@ fn assert_supported_key_path(path: &str) -> CliOutcome<()> {
     Err(err(format!("Unsupported Majik Key file \"{path}\". Expected a .json backup.")))
 }
 
+/// Load a MajikKey backup through the CLI key-import workflow.
 pub fn load_majik_key(key_path: &str) -> CliOutcome<LoadedMajikKey> {
     let resolved = resolve_cli_path(key_path);
     assert_supported_key_path(&resolved.to_string_lossy())?;
@@ -41,6 +43,7 @@ pub fn load_majik_key(key_path: &str) -> CliOutcome<LoadedMajikKey> {
         .map_err(|e| err(format!("Failed to load Majik Key \"{}\": {e}", resolved.display())))
 }
 
+/// Load a key and ensure that it contains the signing material required by the command.
 pub fn load_signing_key(key_path: &str) -> CliOutcome<LoadedMajikKey> {
     let mut key = load_majik_key(key_path)?;
     if !key.has_keys(&[majik_key::KeyId::Ed25519, majik_key::KeyId::MlDsa87]) {
@@ -56,6 +59,7 @@ pub fn load_signing_key(key_path: &str) -> CliOutcome<LoadedMajikKey> {
     Ok(key)
 }
 
+/// Lock a loaded key after use so Majik Key can release or zeroize unlocked secret material.
 pub fn lock_key(key: &mut LoadedMajikKey) {
     if key.is_unlocked() {
         key.lock();

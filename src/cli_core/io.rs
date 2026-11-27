@@ -5,13 +5,17 @@ use std::path::{Path, PathBuf};
 
 use crate::cli_core::types::FolderFile;
 
+/// Type-erased error returned by CLI filesystem and operation helpers.
 pub type CliError = Box<dyn std::error::Error + Send + Sync>;
+/// Standard result type for reusable CLI operations.
 pub type CliOutcome<T> = Result<T, CliError>;
 
+/// Convert a human-readable CLI failure message into the boxed error type.
 pub fn err(msg: impl Into<String>) -> CliError {
     msg.into().into()
 }
 
+/// Infer a MIME type from a path extension, using a generic fallback for unknown types.
 pub fn mime_type_for_path(path: &Path) -> String {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e.to_lowercase()));
     let m = match ext.as_deref() {
@@ -46,6 +50,7 @@ pub fn mime_type_for_path(path: &Path) -> String {
     m.to_string()
 }
 
+/// Check whether a path has a known Majik Signature artifact extension.
 pub fn is_majik_artifact(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
@@ -53,11 +58,13 @@ pub fn is_majik_artifact(path: &Path) -> bool {
     )
 }
 
+/// Convert a target path into a root-relative forward-slash path for manifest entries.
 pub fn relative_posix(root: &Path, target: &Path) -> String {
     let rel = target.strip_prefix(root).unwrap_or(target);
     rel.to_string_lossy().replace('\\', "/").trim_start_matches('/').trim().to_string()
 }
 
+/// Resolve a CLI-provided path against the current working directory.
 pub fn resolve_cli_path(path: &str) -> PathBuf {
     let p = Path::new(path);
     if p.is_absolute() {
@@ -67,15 +74,18 @@ pub fn resolve_cli_path(path: &str) -> PathBuf {
     }
 }
 
+/// Read an entire file into memory; use reader-based APIs for large files.
 pub fn read_bytes(path: &Path) -> CliOutcome<Vec<u8>> {
     fs::read(path).map_err(|e| err(format!("{}: {e}", path.display())))
 }
 
+/// Read a UTF-8 JSON file and deserialize it into the requested type.
 pub fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> CliOutcome<T> {
     let text = fs::read_to_string(path).map_err(|e| err(format!("{}: {e}", path.display())))?;
     serde_json::from_str(&text).map_err(|e| err(format!("Invalid JSON in \"{}\": {e}", path.display())))
 }
 
+/// Write bytes to a destination while enforcing the explicit overwrite policy.
 pub fn write_bytes(path: &Path, bytes: &[u8], overwrite: bool) -> CliOutcome<()> {
     if !overwrite && path.exists() {
         return Err(err(format!(
@@ -131,12 +141,14 @@ pub fn read_folder_files(root_path: &Path) -> CliOutcome<Vec<FolderFile>> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Filesystem path classification used by CLI input validation.
 pub enum PathKind {
     File,
     Directory,
 }
 
 impl PathKind {
+    /// Return the stable human-readable name for this path kind.
     pub fn name(&self) -> &'static str {
         match self {
             Self::File => "file",
@@ -145,6 +157,7 @@ impl PathKind {
     }
 }
 
+/// Inspect a path and return its supported file/directory kind or a filesystem error.
 pub fn get_path_kind(path: &Path) -> CliOutcome<PathKind> {
     let md = fs::metadata(path).map_err(|_| err(format!("Path does not exist: \"{}\"", path.display())))?;
     if md.is_dir() {
@@ -156,16 +169,19 @@ pub fn get_path_kind(path: &Path) -> CliOutcome<PathKind> {
     }
 }
 
+/// Derive the default detached-signature output path for an input file.
 pub fn output_path_for_detached_file(input: &Path) -> PathBuf {
     let mut s = input.as_os_str().to_os_string();
     s.push(".mjksig");
     PathBuf::from(s)
 }
 
+/// Derive the default MJKSMAP output path for a directory batch.
 pub fn output_path_for_map(input_dir: &Path) -> PathBuf {
     input_dir.join("signatures.mjksmap")
 }
 
+/// Derive the default map output path when a bundle/archive path is also supplied.
 pub fn output_path_for_map_bundle(input_dir: &Path, map_path: &Path) -> PathBuf {
     let dir_name = input_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let map_name = map_path.file_stem().and_then(|n| n.to_str()).unwrap_or("map");
@@ -173,10 +189,12 @@ pub fn output_path_for_map_bundle(input_dir: &Path, map_path: &Path) -> PathBuf 
     map_path.parent().unwrap_or(Path::new(".")).join(format!("{base}.mjksbundle.zip"))
 }
 
+/// Return the crate version embedded at compile time.
 pub fn package_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Return the file count and aggregate byte length for a discovered batch.
 pub fn summarize_files(files: &[FolderFile]) -> (usize, u64) {
     (files.len(), files.iter().map(|f| f.size).sum())
 }

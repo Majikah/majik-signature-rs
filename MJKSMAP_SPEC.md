@@ -3,6 +3,7 @@
 [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksmap-green)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksmap)
 
 
+**Registered Media Type:** `application/vnd.majikah.mjksmap`
 **Status:** Container version 2 (CBOR); version 1 JSON remains readable
 **Manifest schema version:** `1` (`0x01`)
 **Format:** Self-identifying binary container carrying a CBOR-native manifest
@@ -245,6 +246,8 @@ The implementation applies the following normalization to paths before storing a
 3. Remove a Windows drive-letter prefix such as `C:` or `D:`.
 4. Remove leading `/` characters.
 
+Trimming uses the exact ECMAScript `String.prototype.trim()` whitespace and line-terminator set in both implementations. Rust mirrors this set explicitly rather than using its native Unicode whitespace classification. In particular, U+FEFF is trimmed while U+0085 is not. This rule applies to both MJKSMAP path normalization and SignRoom `sessionId`/`challengeId` validation; interior whitespace is preserved.
+
 Examples:
 
 | Input | Normalized path |
@@ -254,22 +257,23 @@ Examples:
 | `/docs/report.pdf` | `docs/report.pdf` |
 | `  docs/report.pdf  ` | `docs/report.pdf` |
 
-### 7.1 Path rules not currently enforced
+### 7.1 Additional path acceptance and safety rules
 
-The current implementation does **not** additionally resolve or reject:
+Before an entry is accepted, both implementations enforce the following:
 
-- `.` path segments;
-- `..` path segments;
-- repeated internal `/` separators;
-- control characters;
-- NUL characters; or
-- Unicode normalization differences.
+- The original input path must be a non-empty string.
+- The original input string is limited to **4,096 UTF-16 code units before normalization**.
+- NUL and other C0 control characters (`U+0000–U+001F`), DEL (`U+007F`), bidirectional override controls (`U+202A–U+202E`), and bidirectional isolate controls (`U+2066–U+2069`) are rejected.
+- After the normalization in Section 7, an empty path and any path containing a segment exactly equal to `..` are rejected.
+- Duplicate paths after normalization are rejected.
 
-Applications that use untrusted archive paths should apply their own archive/path-safety policy before creating a map.
+The implementation does not resolve `.` segments, collapse repeated internal separators, apply Unicode NFC/NFD normalization, resolve symbolic links, or check filesystem-specific case/alias rules. It strips leading slashes and a leading drive-letter prefix; this creates a logical relative map key but is **not** a filesystem sandbox or archive-extraction policy. Applications handling untrusted archives must still enforce root containment and platform-specific path rules before writing files.
+
+The map index compares normalized path strings exactly and is case-sensitive.
 
 ### 7.2 Case sensitivity
 
-The map's JavaScript `Map` indices compare normalized path strings exactly. No case-folding is performed by the current implementation.
+Both implementations compare normalized path strings exactly (TypeScript `Map`, Rust `HashMap`). No case-folding is performed.
 
 Therefore, path keys are case-sensitive at the map layer:
 
@@ -284,13 +288,9 @@ are distinct strings.
 
 ## 8. Duplicate Paths
 
-`fromJSON()` validation checks for duplicate path strings in the supplied `entries` array.
+Both implementations normalize every supplied path using Section 7 before checking uniqueness. Two distinct input strings that normalize to the same logical path are therefore rejected during JSON parsing/validation; they are not silently collapsed by the constructor.
 
-The duplicate check currently uses the path string as supplied to validation, before the constructor performs its storage normalization.
-
-Therefore, applications producing untrusted JSON should normalize paths consistently before constructing manifests to avoid equivalent paths expressed in different pre-normalized forms.
-
-`withEntry()` replaces an existing stored entry having the same normalized path rather than creating a second stored entry.
+`withEntry()` is an immutable builder that replaces an existing entry with the same normalized path rather than creating a duplicate. The uniqueness rule is identical for JSON input and builder-created entries.
 
 ---
 

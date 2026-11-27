@@ -1,209 +1,118 @@
 # Security Policy
 
-This document describes the security model of `majik-signature`, what it does and does not guarantee, and how to report a vulnerability. It is written to match the actual implementation — if something here looks inconsistent with the code, please [report it](#reporting-a-vulnerability).
+This policy describes the security properties and limitations of the `majik-signature` Rust crate 1.6.0 as implemented in this repository. It covers integrity/signature verification, envelope and manifest parsing, and the boundaries between this library and the application that uses it.
 
----
+## Supported versions
 
-## Table of Contents
+The `Cargo.toml` source manifest declares version **1.6.0** and requires Rust **1.88 or newer**. Only the latest published crate release is intended to receive security fixes; older releases should be upgraded. A repository source version does not, by itself, establish whether that version has been published to the package registry.
 
-- [Security Policy](#security-policy)
-  - [Table of Contents](#table-of-contents)
-  - [Supported Versions](#supported-versions)
-  - [Reporting a Vulnerability](#reporting-a-vulnerability)
-  - [Security Model](#security-model)
-    - [What this library actually does](#what-this-library-actually-does)
-    - [Hybrid signing](#hybrid-signing)
-    - [Domain separation](#domain-separation)
-    - [What's covered by the signature](#whats-covered-by-the-signature)
-    - [Multi-party integrity](#multi-party-integrity)
-  - [Scope](#scope)
-    - [In scope](#in-scope)
-    - [Out of scope](#out-of-scope)
-  - [Known Limitations \& Non-Goals](#known-limitations--non-goals)
-  - [Dependency \& Supply Chain](#dependency--supply-chain)
-  - [Secure Usage Guidelines](#secure-usage-guidelines)
-  - [Cryptographic Details](#cryptographic-details)
-  - [Disclosure Policy](#disclosure-policy)
-  - [Contact](#contact)
+There is no long-term support branch or contractual patch window. Security maintenance and response are best-effort.
 
----
+## Reporting a vulnerability
 
-## Supported Versions
+Please do not disclose exploitable security issues in public GitHub issues.
 
-This library is currently pre-1.0 (`0.0.x`). There is no long-term support branch — **only the latest published version on npm receives security fixes.**
+Report privately through [GitHub Private Vulnerability Reporting](https://github.com/Majikah/majik-signature-rs/security) or by email to [business@majikah.solutions](mailto:business@majikah.solutions) with `SECURITY` in the subject.
 
-| Version          | Supported             |
-| ---------------- | --------------------- |
-| Latest (`0.0.x`) | ✅ Yes                 |
-| Older `0.0.x`    | ❌ No — please upgrade |
+Include the affected release/commit, runtime or platform, impact, reproduction steps or a minimal proof of concept, and whether the issue concerns signature verification, parsing, file embedding, streaming, a dependency, or an application integration.
 
-Once the library reaches `1.0.0`, this table will be updated with a defined support window. Until then, treat every release as the only supported release, and pin your dependency deliberately rather than assuming older minor versions remain patched.
+Response and remediation are best-effort. We aim to acknowledge reports within five business days and provide an initial assessment within ten business days where practical; these are targets, not an SLA.
 
----
+## Security model
 
-## Reporting a Vulnerability
+### What the library provides
 
-**Please do not open a public GitHub issue for security vulnerabilities.**
+Majik Signature provides content integrity and cryptographic signer proof. It does not encrypt content, establish the real-world identity of a signer by itself, provide key revocation, or replace application authorization.
 
-Report privately via:
+Every per-signer signature uses **Ed25519 and ML-DSA-87 (FIPS 204)** over the same canonical signing payload. Verification requires both signature checks to succeed. The signed content is represented by its SHA-256 digest; the full content is hashed before the fixed-size signing payload is constructed.
 
-1. **GitHub Private Vulnerability Reporting**  — [github.com/Majikah/majik-signature-rs/security](https://github.com/Majikah/majik-signature-rs/security)
-2. **Email** — [business@majikah.solutions](mailto:business@majikah.solutions), with `SECURITY` in the subject line
+The canonical payload uses the `majik-signature-v1:` domain separator. Separate domain prefixes are used for seal (`majik-seal-v1:`), TSA (`majikah-tsa-v-1:`), signature-scoped TSA attestation (`majik-signature-attestation-v1:`), and SignRoom session-context (`majik-signature-session-context-v1:`) commitments. These prefixes and canonical field ordering are protocol data; changing them would break compatibility.
 
-Please include:
-- A description of the issue and its potential impact
-- Steps to reproduce, or a minimal proof-of-concept
-- The affected version(s), and whether the issue is in this package or a dependency
-- Whether the issue is in the core cryptographic path (`sign`/`verify`) or the file-embedding layer
+### Signer identity and key trust
 
-**This is a small, independently maintained project — response times are best-effort, not a contractual SLA.** In good faith, we aim to:
+A successful cryptographic result proves that the signature verifies under the public keys supplied for that verification. Applications must obtain or pin those keys through an independently trusted channel and compare the verified `signerId` with the identity they expect. Public keys embedded in an envelope are self-asserted data until authenticated externally.
 
-| Stage                                   | Target                               |
-| --------------------------------------- | ------------------------------------ |
-| Initial acknowledgment                  | Within 5 business days               |
-| Preliminary assessment                  | Within 10 business days              |
-| Fix or mitigation, for confirmed issues | Best-effort, prioritized by severity |
+Do not treat signatory or issuer display queries, signed-status checks, envelope parsing, or an extracted public key as proof that a person or organization has signed. Use the verification result and application-level identity policy.
 
-We will keep you informed as the report is triaged and credit reporters (if desired) once a fix ships, in line with the [Disclosure Policy](#disclosure-policy) below.
+### Expiry and timestamps
 
----
+`validUntil`, when present, is included in the signed canonical payload and is enforced by verification against the caller's verification time (the current time by default). The application controls the clock supplied to verification; clock correctness and any policy requiring a maximum signature age remain application responsibilities.
 
-## Security Model
+The ordinary signature `timestamp` is self-reported by the signer. It is covered by the signature, but it is not independently attested. A TSA token can provide an attested timestamp, but the application must trust the TSA public-key identity. Verifying a token only against a public key embedded inside that same token proves internal cryptographic consistency, not that the token came from an authoritative TSA.
 
-### What this library actually does
+TSA request transport, server authentication, trusted-key distribution, nonce/challenge issuance and consumption, replay prevention, and participant authorization are outside this library. Signature-scoped TSA tokens bind to a particular signer record; do not reuse one signer's token for another record.
 
-Majik Signature provides **integrity and authenticity**, not confidentiality. It answers the question *"was this exact content produced by this key, unmodified, at this time?"* — it does not encrypt content, hide it, or control who can read it.
+### Allowlists, seals, and revision chains
 
-### Hybrid signing
+- **Allowlists:** The allowlist hash is committed by the issuer's signature. The library's signing methods enforce the allowlist when used normally. The envelope's presence or displayed signatory list is not a substitute for verifying the issuer and each signer record.
+- **Seals:** A seal is a SHA3-512 hash commitment over envelope state, not an additional digital signature. `verify_seal()` checks the seal commitment; verify the underlying per-signer Ed25519 and ML-DSA-87 signatures separately.
+- **Revision chains:** Structural previous-version hashes detect inconsistencies in the chain. A signer's `versionChainHash` cryptographically commits to the chain prefix at their signing turn. Commitment-only checks verify the signed commitment but cannot prove that historical bytes actually matched an earlier content hash. Full historical verification requires the actual archived revision bytes.
 
-Every signature is produced by **two independent algorithms over the same canonical payload**, and verification requires **both** to pass:
+### MJKSMAP batch manifests
 
-- **Ed25519** — classical, 128-bit security, via `@stablelib/ed25519`
-- **ML-DSA-87 (FIPS-204)** — post-quantum, NIST Category 5, via `@noble/post-quantum`
+MJKSMAP maps normalized paths to content hashes and detached signature envelopes. The envelope signatures authenticate the signed content digest and signed per-signer metadata; they do **not** sign the manifest's path strings or the manifest as a whole. MJKSMAP path mapping, entry ordering, and other manifest metadata must therefore be protected by the application's trusted storage or transport if they have security significance.
 
-This hybrid construction means a break in either algorithm alone — a classical cryptanalytic advance against Ed25519, or a future quantum attack against ML-DSA-87 — is not sufficient on its own to forge a valid signature.
+File resolution checks the recorded path and digest and can report relocation or tampering. This is not a filesystem sandbox. Applications extracting archives or writing untrusted paths must independently enforce root containment, symlink policy, case/alias rules, and platform-specific filename restrictions.
 
-### Domain separation
+New `.mjksmap` containers use version 2 CBOR with raw binary byte strings; readers also accept legacy version 1 JSON. The container version selects the decoder but does not authenticate the manifest.
 
-Three independent domain-separation prefixes prevent a signature (or hash) produced for one purpose from being replayed as another:
+## Input bounds and streaming
 
-| Purpose                   | Prefix                |
-| ------------------------- | --------------------- |
-| Content signing payload   | `majik-signature-v1:` |
-| Seal hash payload         | `majik-seal-v1:`      |
-| Trusted timestamp payload | `majikah-tsa-v-1:`    |
+The implementation rejects oversized or malformed envelope/CBOR inputs and applies structural limits to signatures, allowlist entries, TSA nesting, revision metadata, and MJKSMAP entries/paths. MJKSMAP v2 binary payloads are limited to 16 MiB; its JSON compatibility model has a separate 24 MiB input budget for Base64 expansion. The manifest is limited to 10,000 entries, signature arrays and allowlists to 1,024 items, revision arrays to 10,000 entries, nested TSA signature records to depth 8, and original MJKSMAP path inputs to 4,096 UTF-16 code units before normalization.
 
-### What's covered by the signature
+Streaming SHA-256 uses a 1 MiB default chunk size, accepts configured chunk sizes from 64 KiB through 64 MiB, and uses an 8 MiB default threshold to select buffered versus streaming work when source size is known. There is no default maximum content-file size: applications processing untrusted or resource-sensitive inputs should set the supported maximum-byte option and use cancellation/progress callbacks as appropriate. Supplying an expected total length enables truncation/overrun detection.
 
-The signed payload binds: envelope version, signer fingerprint, ISO 8601 timestamp, advisory content type, SHA-256 content hash, and — only when establishing an allowlist — the allowlist's own hash. Content itself is never embedded in the envelope; only its hash is signed, so signature cost is independent of content size.
+These metadata and streaming bounds reduce accidental or adversarial resource use; they do not eliminate denial-of-service risks from all application workloads. Applications should still enforce request, concurrency, storage, and CPU budgets.
 
-### Multi-party integrity
+## Known limitations and non-goals
 
-- **Allowlists** are cryptographically committed: the issuer's `allowlistHash` is inside their own signed payload, so modifying the allowlist after the fact invalidates the issuer's signature.
-- **Sealing** computes a SHA3-512 hash over all current signatories plus a seal timestamp. This is a **hash commitment, not a signature** — `verifySeal()` checks hash equality, and does not itself perform any Ed25519/ML-DSA-87 verification. Always call `verifyFile()` separately to validate the underlying signer signatures.
+- **No confidentiality:** signing does not encrypt the document or envelope.
+- **No revocation:** signatures remain cryptographically verifiable after a key is compromised unless the application maintains and checks a revocation/authorization policy.
+- **No automatic identity trust:** an embedded signer or TSA public key is not inherently trusted.
+- **No trusted wall clock:** expiry uses the verification time supplied by the caller or the local clock.
+- **Advisory content type:** `contentType` is signed metadata, not a policy boundary or safe file-type detector.
+- **Signature removal:** embedded signature metadata can be stripped; stripping produces unsigned content and does not create a valid signature over altered bytes.
+- **Manifest paths are not signed:** protect MJKSMAP manifests and path mapping through trusted storage/transport and enforce filesystem containment separately.
+- **Experimental image stamping:** image-stamp helpers are a separate experimental feature and should not be treated as equivalent to the core detached/embedded file-signature workflow.
+- **No automatic external audit:** passing repository CI does not amount to an independent cryptographic review or continuous dependency-advisory monitoring.
 
----
+## Dependencies and supply chain
 
-## Scope
+Cryptographic primitives are delegated to upstream Rust dependencies: `ed25519-dalek` (Ed25519), `fips204` (ML-DSA-87), `sha2` / `sha3` (hash operations), and `majik-key` (key management). The crate also uses `ciborium` for CBOR, `serde`/`serde_json` for data models, `zeroize` for secret-buffer cleanup, `zip` for Office/ODF embedding, `image` for image operations, and `clap`/`rpassword` for the optional CLI feature. This project does not implement the Ed25519, ML-DSA-87, SHA-256, or SHA3-512 algorithms itself. Dependency vulnerabilities may require upgrading the affected crate and then releasing a compatible update.
 
-### In scope
+Review dependency updates, use lockfiles where applicable, and run the package manager's advisory tooling in your own release pipeline. Repository CI tests and builds the source but should not be interpreted as an independent software-composition or cryptographic audit.
 
-- The core signing/verification path (`sign`, `verify`, `verifyWithKey`) in `majik-signature.ts`
-- The canonical payload construction (`payload.ts`) and any weakening of domain separation or hash binding
-- The file embedding/extraction/strip round-trip (`majik-embed.ts` and all format handlers)
-- Multi-signature, allowlist, and seal logic (`multi-sig.ts`)
-- Serialization/deserialization (`toJSON`/`fromJSON`/`serialize`/`deserialize`)
-- Any vulnerability that allows a signature to verify as `valid: true` against content or a signer it should not
+## Secure usage checklist
 
-### Out of scope
+- Verify the file/content and inspect every per-signer verification result.
+- Authenticate signer public keys independently and enforce the expected signer identity in the application.
+- Verify the allowlist issuer before relying on its policy.
+- Verify seal commitments **and** the underlying signer signatures.
+- Supply trusted TSA public keys when TSA provenance matters.
+- Require the expected SignRoom session context for session-bound digest-only verification.
+- Set maximum input/concurrency limits for untrusted streams and cancel work when the operation is no longer needed.
+- Protect MJKSMAP manifests and enforce filesystem containment independently.
+- Keep `majik-key` secret material protected and lock/zeroize keys through the key-management API after use.
 
-- **`MajikKey`** — key generation, storage, and mnemonic handling live in the separate `@majikah/majik-key` peer dependency. Report key-management issues there.
-- **Image stamping module** (`stampImage`/`verifyStamp`/`inspectStamp`/`isStamped`) — explicitly marked `@experimental` in source and not API-stable. Issues are welcome but are not treated as security-critical in the same sense as the core signing path.
-- **Applications built on this library** — misuse (e.g., trusting an unverified `signerId`, skipping `key.lock()`, treating `contentType` as enforced) is an application-level concern; see [Secure Usage Guidelines](#secure-usage-guidelines).
-- **Denial-of-service via large inputs** — the library hashes and signs whatever it's given; enforcing size limits on untrusted input is the caller's responsibility.
+## Cryptographic parameters
 
----
+| Property | Value |
+|---|---|
+| Classical signature | Ed25519 |
+| Post-quantum signature | ML-DSA-87 (FIPS 204) |
+| Content digest | SHA-256 |
+| Allowlist digest | SHA-256 |
+| Seal digest | SHA3-512 |
+| Signature schema version | 1 |
+| Envelope schema version | 1 |
+| MJKSIG container writer | v2 CBOR (v1 JSON remains readable) |
+| MJKSMAP container writer | v2 CBOR (v1 JSON remains readable) |
 
-## Known Limitations & Non-Goals
+## Disclosure
 
-Documented honestly, so you can design around them:
-
-- **No confidentiality.** Signing does not encrypt or hide content. A signed file's contents (and the signature envelope itself) are fully readable by anyone with the file. If you need confidentiality, encrypt separately before or after signing.
-- **No revocation.** There is no mechanism to revoke a previously issued signature. If a signer's key is later compromised, signatures made before compromise remain cryptographically valid forever — key compromise response is an application/key-management concern, not something `verify()` can detect.
-- **No freshness/expiry enforcement.** The signed payload includes a timestamp, but `verify()` does not check it against a validity window or current time. An old-but-legitimately-signed file will always verify as valid. If your use case needs "signed within the last N days," enforce that check on `result.timestamp` yourself.
-- **`contentType` is advisory only.** It is included in the signed payload (so it can't be silently swapped after signing), but it is never used to restrict what verify() will accept. Don't rely on it as an access-control mechanism.
-- **Signatures can be stripped, not forged.** Anyone can remove an embedded signature from a file (`strip()` is a public, deterministic operation) — that just produces an unsigned file. This is expected and analogous to removing a physical signature page: it does not let an attacker produce a *valid* signature over modified content, or make a stripped file appear signed.
-- **Array-of-signatures does not imply array-of-valid-signatures.** `extractFrom()` and the raw envelope can technically contain malformed or invalid signature entries (e.g., a hand-edited file with a garbage `edSignature`). Always check `valid` on each `VerificationResult` returned by `verifyFile()` — never assume presence in the envelope implies cryptographic validity.
-- **Allowlist enforcement is a library-level, not container-level, guarantee.** `signAndEmbed()` rejects non-listed signers before doing any cryptographic work when you go through the library's own APIs. Nothing stops a party with direct file access from hand-crafting an envelope with an unauthorized signer's ID and a bogus signature — it will simply fail verification, so this is not a forgery risk, but downstream code that inspects `getSignatories()` without also calling `verifyFile()` could be misled about who has "signed."
-- **No built-in transport security.** Trusted Timestamp requests/responses and any network calls your application layers on top of this library are your responsibility to secure (TLS, server authentication, etc.) — the library only handles the cryptographic payload.
-- **Pre-1.0 API stability.** Until `1.0.0`, minor versions may include breaking changes, including to security-relevant defaults. Read release notes before upgrading.
-- **ML-DSA-87 is a relatively young standard** (FIPS-204 finalized in 2024). The hybrid design exists specifically so that a weakness discovered in ML-DSA-87 alone does not compromise signatures already issued — Ed25519 coverage remains intact — but this is not a substitute for tracking NIST post-quantum guidance as the field matures.
-
----
-
-## Dependency & Supply Chain
-
-Majik Signature has a deliberately small dependency surface and **no native bindings**:
-
-| Dependency                  | Role                                                    |
-| --------------------------- | ------------------------------------------------------- |
-| `@noble/post-quantum`       | ML-DSA-87 (FIPS-204) implementation                     |
-| `@stablelib/ed25519`        | Ed25519 implementation                                  |
-| `@stablelib/sha256`         | SHA-256 hashing                                         |
-| `fflate`                    | ZIP handling for Office/ODF format embedding            |
-| `@majikah/majik-key` (peer) | Key generation, unlocking, and secret material handling |
-
-Cryptographic primitives are delegated entirely to the underlying libraries above — this project does not implement its own Ed25519, ML-DSA-87, or SHA-256/SHA3-512 primitives. Vulnerabilities in the cryptographic math itself should generally be reported upstream to those projects as well as to us, since we would need to update the dependency to ship a fix.
-
-We recommend running `npm audit` (or your package manager's equivalent) against your own lockfile regularly, since transitive dependency advisories can appear between our releases.
-
----
-
-## Secure Usage Guidelines
-
-The full list lives in the [README's Security Considerations](README.md#security-considerations). The security-critical subset:
-
-- ✅ Always check `result.valid` **and** cross-check `result.signerId` against a fingerprint you actually trust — a cryptographically valid signature from an *unexpected* signer is not the same as a trusted one.
-- ✅ Call `key.lock()` immediately after signing to purge secret key material from memory.
-- ✅ Treat every entry in `verifyFile()`'s result array independently — a file with multiple signatures can have some valid and some invalid entries.
-- ✅ If you rely on sealing, call both `verifySeal()` (structural) **and** `verifyFile()` (cryptographic) — they check different things.
-- ❌ Never treat `contentType`, file extension, or MIME type as a trust boundary.
-- ❌ Never assume a signature's presence means it verified — always call `verify()`/`verifyFile()`; don't infer trust from `isSigned()` or `extractFrom()` alone.
-
----
-
-## Cryptographic Details
-
-| Property                         | Value                                 |
-| -------------------------------- | ------------------------------------- |
-| Classical signature algorithm    | Ed25519                               |
-| Post-quantum signature algorithm | ML-DSA-87 (NIST FIPS-204, Category 5) |
-| Content hash                     | SHA-256                               |
-| Allowlist hash                   | SHA-256                               |
-| Seal hash                        | SHA3-512                              |
-| Signature envelope version       | `1` (`MAJIK_SIGNATURE_VERSION`)       |
-| Envelope wrapper version         | `1` (`MAJIK_ENVELOPE_VERSION`)        |
-| Timestamp payload version        | `1` (`MAJIK_TIMESTAMP_VERSION`)       |
-
-Version fields are embedded in every envelope specifically to support future cryptographic migration (e.g., a future `MAJIK_SIGNATURE_VERSION = 2` using different or additional algorithms) without breaking verification of signatures issued under the current scheme.
-
----
-
-## Disclosure Policy
-
-We follow a **coordinated disclosure** approach:
-
-1. You report privately, per [Reporting a Vulnerability](#reporting-a-vulnerability).
-2. We confirm, assess severity, and work on a fix without public disclosure.
-3. Once a fix is published to npm, we credit the reporter (if they wish to be credited) and publish details of the issue.
-4. If a report goes unacknowledged for an extended period despite good-faith reporting attempts, we consider public disclosure by the reporter reasonable — we'd rather you responsibly disclose than sit on a real issue indefinitely because we were slow.
-
-We do not currently operate a paid bug bounty program.
-
----
+We follow coordinated disclosure where practical. After a fix is available, maintainers may publish release notes and credit the reporter if requested. We do not currently operate a paid bug-bounty program.
 
 ## Contact
 
-- **Security reports**: [github.com/Majikah/majik-signature-rs/security](https://github.com/Majikah/majik-signature-rs/security) or [business@majikah.solutions](mailto:business@majikah.solutions) (subject: `SECURITY`)
-- **General/non-security issues**: [GitHub Issues](https://github.com/Majikah/majik-signature-rs/issues)
-- **Maintainer**: [Josef Elijah Fabian](https://github.com/jedlsf)
+- Security: [GitHub Private Vulnerability Reporting](https://github.com/Majikah/majik-signature-rs/security) or [business@majikah.solutions](mailto:business@majikah.solutions) (`SECURITY` subject)
+- Maintainer: [Majikah](https://github.com/Majikah)

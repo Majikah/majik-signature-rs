@@ -5,6 +5,7 @@
 
 use crate::core::embed::constants::{TRAILER_MAGIC, TRAILER_SUFFIX_LENGTH};
 
+/// Encode a string as UTF-8 bytes.
 pub fn text_encode(s: &str) -> Vec<u8> {
     s.as_bytes().to_vec()
 }
@@ -14,6 +15,7 @@ pub fn text_decode(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// Concatenate byte slices in the given order into one owned buffer.
 pub fn concat_bytes(arrays: &[&[u8]]) -> Vec<u8> {
     let total = arrays.iter().map(|a| a.len()).sum();
     let mut out = Vec::with_capacity(total);
@@ -23,28 +25,34 @@ pub fn concat_bytes(arrays: &[&[u8]]) -> Vec<u8> {
     out
 }
 
+/// Encode a 64-bit unsigned integer as eight little-endian bytes.
 pub fn write_uint64_le(value: u64) -> [u8; 8] {
     value.to_le_bytes()
 }
 
+/// Read a 64-bit little-endian integer at the supplied offset; caller must provide enough bytes.
 pub fn read_uint64_le(bytes: &[u8], offset: usize) -> u64 {
     let mut b = [0u8; 8];
     b.copy_from_slice(&bytes[offset..offset + 8]);
     u64::from_le_bytes(b)
 }
 
+/// Encode a 32-bit unsigned integer as four big-endian bytes.
 pub fn write_uint32_be(value: u32) -> [u8; 4] {
     value.to_be_bytes()
 }
 
+/// Read a 32-bit big-endian integer at the supplied offset; caller must provide enough bytes.
 pub fn read_uint32_be(bytes: &[u8], offset: usize) -> u32 {
     u32::from_be_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]])
 }
 
+/// Encode a 32-bit unsigned integer as four little-endian bytes.
 pub fn write_uint32_le(value: u32) -> [u8; 4] {
     value.to_le_bytes()
 }
 
+/// Read a 32-bit little-endian integer at the supplied offset; caller must provide enough bytes.
 pub fn read_uint32_le(bytes: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]])
 }
@@ -177,6 +185,7 @@ pub fn extract_trailer(bytes: &[u8]) -> Option<(String, Vec<u8>)> {
     Some((text_decode(payload), bytes[..payload_start].to_vec()))
 }
 
+/// Compare two byte buffers for exact equality.
 pub fn buffer_equal(a: &[u8], b: &[u8]) -> bool {
     a == b
 }
@@ -201,6 +210,7 @@ const fn make_crc_table() -> [u32; 256] {
 
 static CRC_TABLE: [u32; 256] = make_crc_table();
 
+/// Calculate the CRC-32 checksum used by supported file-format handlers; this is not a cryptographic hash.
 pub fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xffff_ffffu32;
     for &byte in data {
@@ -211,11 +221,13 @@ pub fn crc32(data: &[u8]) -> u32 {
 
 // ── Pattern helpers ──────────────────────────────────────────────────────────
 
+/// Check whether a byte pattern matches at an exact offset without allocating.
 pub fn matches_at(bytes: &[u8], pattern: &[u8], offset: usize) -> bool {
     offset.checked_add(pattern.len()).map(|end| end <= bytes.len()).unwrap_or(false)
         && &bytes[offset..offset + pattern.len()] == pattern
 }
 
+/// Check whether a byte pattern occurs anywhere in the supplied buffer.
 pub fn includes_bytes(bytes: &[u8], pattern: &[u8]) -> bool {
     if pattern.is_empty() {
         return true;

@@ -19,6 +19,7 @@ fn print_field(result: &CliResult, label: &str, key: &str) {
     }
 }
 
+/// Render a structured command result as human-readable terminal output.
 pub fn print_result(result: &CliResult) {
     if !result.ok {
         eprintln!("✘ {}", result.message);
@@ -73,10 +74,12 @@ pub fn print_result(result: &CliResult) {
     }
 }
 
+/// Render a command result as JSON for scripts and machine consumers.
 pub fn print_json_result(result: &CliResult) {
     println!("{}", serde_json::to_string_pretty(result).unwrap_or_default());
 }
 
+/// Render an operation error to stderr.
 pub fn print_failure(error: &dyn std::error::Error) {
     eprintln!("✘ {error}");
 }

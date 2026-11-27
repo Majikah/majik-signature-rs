@@ -6,9 +6,11 @@
 use std::error::Error as StdError;
 use std::fmt;
 
+/// Type-erased error cause retained when a lower-level failure is wrapped.
 pub type BoxedCause = Box<dyn StdError + Send + Sync + 'static>;
 
 #[derive(Debug)]
+/// Typed error categories returned by the Majik Signature Rust APIs.
 pub enum MajikSignatureError {
     /// Base `MajikSignatureError`.
     Generic { message: String, cause: Option<BoxedCause> },
@@ -24,6 +26,7 @@ pub enum MajikSignatureError {
     Allowlist { message: String, signer_id: String, cause: Option<BoxedCause> },
 }
 
+/// Standard result type used by fallible public APIs in this crate.
 pub type MajikSignatureResult<T> = Result<T, MajikSignatureError>;
 
 fn boxed<E: StdError + Send + Sync + 'static>(e: E) -> BoxedCause {
@@ -31,15 +34,19 @@ fn boxed<E: StdError + Send + Sync + 'static>(e: E) -> BoxedCause {
 }
 
 impl MajikSignatureError {
+    /// Create a generic error with a human-readable message.
     pub fn new(message: impl Into<String>) -> Self {
         Self::Generic { message: message.into(), cause: None }
     }
+    /// Create a generic error while retaining its underlying cause.
     pub fn with_cause<E: StdError + Send + Sync + 'static>(message: impl Into<String>, cause: E) -> Self {
         Self::Generic { message: message.into(), cause: Some(boxed(cause)) }
     }
+    /// Create an input-validation error, optionally naming the offending field.
     pub fn validation(message: impl Into<String>, field: Option<&str>) -> Self {
         Self::Validation { message: message.into(), field: field.map(str::to_string), cause: None }
     }
+    /// Create a field-aware validation error while retaining the underlying cause.
     pub fn validation_with_cause(
         message: impl Into<String>,
         field: Option<&str>,
@@ -51,24 +58,30 @@ impl MajikSignatureError {
             cause: Some(Box::new(cause)),
         }
     }
+    /// Create an error for an unexpected failure during cryptographic verification.
     pub fn verification(message: impl Into<String>) -> Self {
         Self::Verification { message: message.into(), cause: None }
     }
+    /// Create a key-material or public-key handling error.
     pub fn key(message: impl Into<String>) -> Self {
         Self::Key { message: message.into(), cause: None }
     }
+    /// Create a key error while retaining the underlying cause.
     pub fn key_with_cause<E: StdError + Send + Sync + 'static>(message: impl Into<String>, cause: E) -> Self {
         Self::Key { message: message.into(), cause: Some(boxed(cause)) }
     }
+    /// Create a JSON, Base64, CBOR, MJKSIG, or MJKSMAP serialization/parsing error.
     pub fn serialization(message: impl Into<String>) -> Self {
         Self::Serialization { message: message.into(), cause: None }
     }
+    /// Create a serialization error while retaining the underlying parsing/encoding cause.
     pub fn serialization_with_cause<E: StdError + Send + Sync + 'static>(
         message: impl Into<String>,
         cause: E,
     ) -> Self {
         Self::Serialization { message: message.into(), cause: Some(boxed(cause)) }
     }
+    /// Create an allowlist rejection error and record the rejected signer fingerprint.
     pub fn allowlist(message: impl Into<String>, signer_id: impl Into<String>) -> Self {
         Self::Allowlist { message: message.into(), signer_id: signer_id.into(), cause: None }
     }
@@ -85,6 +98,7 @@ impl MajikSignatureError {
         }
     }
 
+    /// Return the human-readable diagnostic message for this error variant.
     pub fn message(&self) -> &str {
         match self {
             Self::Generic { message, .. }

@@ -3,7 +3,7 @@
 [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksig-green)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksig)
 
 **File Extension:** `.mjksig`
-**Proposed Media Type:** `application/vnd.majikah.mjksig`
+**Registered Media Type:** `application/vnd.majikah.mjksig`
 **Category:** Secure digital signature envelope
 **Specification Version:** 1.2
 **Current Format Version Byte:** `0x02` (CBOR; `0x01` JSON is legacy)
@@ -94,7 +94,10 @@ A SignRoom participant may bind their signature to an immutable signing attempt.
 
 - `sessionId`: stable session identifier, non-empty, at most 256 UTF-16 code units, with no surrounding whitespace.
 - `challengeId`: single-use challenge identifier issued for that signing attempt, with the same identifier constraints.
+
 - `policyHash`: canonical padded Base64 encoding of a 32-byte SHA-256 digest of the immutable session policy snapshot.
+
+The surrounding-whitespace check uses the exact ECMAScript `String.prototype.trim()` whitespace and line-terminator set. The Rust implementation mirrors this set rather than using Rust's broader native Unicode whitespace classification. In particular, U+FEFF is trimmed while U+0085 is not.
 
 The context commitment is the Base64 SHA-256 digest of the domain prefix `majik-signature-session-context-v1:` followed by UTF-8 compact JSON with properties in this exact order: `v`, `sessionId`, `challengeId`, `policyHash`. The resulting `sessionContextHash` is included as `sch` in the canonical signature payload, so changing the session, challenge, or policy commitment invalidates both hybrid signatures.
 
@@ -108,6 +111,8 @@ A TSA digest descriptor may optionally include `scope`, with values `content` or
 - `signature` scope binds the TSA to the SHA-256 digest of the domain-separated canonical unsigned signer record: `majik-signature-attestation-v1:` followed by compact JSON `{ v, id, edpk, mlpk, hash, ct, ts, ed, ml[, alh][, vu][, vch][, sch] }`. The optional fields are omitted when absent, except `ct`, which is always serialized as its string value or `null`. The `tsa` property is excluded to prevent a circular commitment.
 
 The TSA signs its normal canonical TSA payload including the digest scope. Attaching/verifying a TSA must recompute the scoped digest and ensure the TSA identity fingerprint equals the embedded TSA-signature signer ID. Applications should additionally pin that identity to an independently trusted TSA public-key fingerprint; embedded keys alone do not establish trust.
+
+For a SignRoom workflow, verify the participant's hybrid signature before requesting a signature-scoped timestamp, then verify the returned token against the authoritative TSA public-key bundle before attaching it. Do not reuse a cached signature-scoped token for a different participant record: the attested digest is specific to the unsigned signer record, including that participant's identity, keys, timestamp, and signed metadata. This library defines the digest and verification operations; TSA request transport, challenge issuance/consumption, participant authorization, and trust-bundle distribution belong to the application/service layer.
 
 ## 3. Binary Layout
 
@@ -299,7 +304,7 @@ xychart-beta
 | 3       | 30,082 B      | 22,644 B | 7,438 B     | 24.73%    |
 | 5       | 50,118 B      | 37,724 B | 12,394 B    | 24.73%    |
 
-Across all 15 fixture-and-signer-count samples (three fixtures and signer counts 1–5), the average payload was **30,082 B as JSON** and **22,644 B as CBOR**, a **24.73% reduction**. These byte counts were captured from a benchmark run on 2026-10-19; they are serialization-size measurements, not timing statistics. Results are specific to this envelope schema and benchmark fixtures; applications should measure their own envelopes if exact storage estimates matter. Re-run with `npm run benchmark:serialization` to reproduce the measurements.
+Across all 15 fixture-and-signer-count samples (three fixtures and signer counts 1–5), the average payload was **30,082 B as JSON** and **22,644 B as CBOR**, a **24.73% reduction**. These byte counts were captured from a benchmark run on 2026-10-19; they are serialization-size measurements, not timing statistics. Results are specific to this envelope schema and benchmark fixtures; applications should measure their own envelopes if exact storage estimates matter. The reproducible benchmark command is maintained in the TypeScript repository (`npm run benchmark:serialization`); this is not a Cargo command or a Rust timing benchmark.
 
 **Improvements in v2:** smaller payloads; native binary representation for cryptographic fields; the same fixed 12-byte header with an explicit encoding version; and a versioned migration path that preserves read compatibility with v1 JSON. CBOR is binary and is not directly human-readable like JSON; tools must select the decoder from the version byte.
 

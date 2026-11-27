@@ -42,6 +42,7 @@ type R<T> = MajikSignatureResult<T>;
 
 /// Anything that can be viewed as a [`MajikSignatureJSON`] (TS: `MajikSignature | MajikSignatureJSON`).
 pub trait SignatureLike {
+    /// Return an owned JSON-compatible snapshot of this signature-like value.
     fn to_signature_json(&self) -> MajikSignatureJSON;
 }
 
@@ -59,6 +60,7 @@ impl SignatureLike for MajikSignature {
 
 /// TS: `MajikKey | MajikSignerPublicKeys`.
 #[derive(Clone, Copy)]
+/// Verification-key input accepting either a MajikKey or an extracted public-key bundle.
 pub enum KeyOrPublicKeys<'a> {
     Key(&'a MajikKey),
     PublicKeys(&'a MajikSignerPublicKeys),
@@ -118,30 +120,39 @@ impl MajikSignature {
 
     // ── Getters ──────────────────────────────────────────────────────────────
 
+    /// Return the per-signer signature schema version (currently 1).
     pub fn version(&self) -> u8 {
         self.version
     }
+    /// Return the signer's Majik Key fingerprint stored in the record.
     pub fn signer_id(&self) -> &str {
         &self.signer_id
     }
+    /// Return the Base64-encoded Ed25519 public key embedded in this record.
     pub fn signer_ed_public_key(&self) -> &str {
         &self.signer_ed_public_key
     }
+    /// Return the Base64-encoded ML-DSA-87 public key embedded in this record.
     pub fn signer_ml_dsa_public_key(&self) -> &str {
         &self.signer_ml_dsa_public_key
     }
+    /// Return the canonical Base64 SHA-256 digest of the signed content.
     pub fn content_hash(&self) -> &str {
         &self.content_hash
     }
+    /// Return the optional advisory content type included in the signing payload.
     pub fn content_type(&self) -> Option<&str> {
         self.content_type.as_deref()
     }
+    /// Return the signer's ISO 8601 timestamp; it is not independently time-attested without a TSA.
     pub fn timestamp(&self) -> &str {
         &self.timestamp
     }
+    /// Return the Base64-encoded Ed25519 signature over the canonical payload.
     pub fn ed_signature(&self) -> &str {
         &self.ed_signature
     }
+    /// Return the Base64-encoded ML-DSA-87 signature over the same canonical payload.
     pub fn ml_dsa_signature(&self) -> &str {
         &self.ml_dsa_signature
     }
@@ -153,6 +164,7 @@ impl MajikSignature {
     pub fn valid_until(&self) -> Option<&str> {
         self.valid_until.as_deref()
     }
+    /// Return the optional signed commitment to the revision-chain prefix at this signer's turn.
     pub fn version_chain_hash(&self) -> Option<&str> {
         self.version_chain_hash.as_deref()
     }
@@ -160,9 +172,11 @@ impl MajikSignature {
     pub fn session_context_hash(&self) -> Option<&str> {
         self.session_context_hash.as_deref()
     }
+    /// Return the optional attached TSA token; presence alone does not establish TSA trust.
     pub fn tsa(&self) -> Option<&MajikTimestamp> {
         self.tsa.as_ref()
     }
+    /// Return whether this signature record contains a TSA token.
     pub fn has_tsa(&self) -> bool {
         self.tsa.is_some()
     }
@@ -552,16 +566,19 @@ impl MajikSignature {
     }
     // ── SELF-VALIDATE ────────────────────────────────────────────────────────
 
+    /// Re-run structural validation; this does not perform signature verification against content.
     pub fn validate(&self) -> R<()> {
         MajikSignatureValidator::validate_json(&self.to_json())
     }
 
+    /// Return whether the record passes structural validation without returning an error.
     pub fn is_valid(&self) -> bool {
         self.validate().is_ok()
     }
 
     // ── EXTRACT PUBLIC KEYS ──────────────────────────────────────────────────
 
+    /// Decode and size-check the embedded public keys. Authenticate their identity separately before trusting them.
     pub fn extract_public_keys(&self) -> R<MajikSignerPublicKeys> {
         let ed = base64_to_bytes(&self.signer_ed_public_key).map_err(|e| {
             MajikSignatureError::key_with_cause("Failed to extract public keys from envelope", e)
@@ -580,6 +597,7 @@ impl MajikSignature {
 
     // ── SERIALIZATION ────────────────────────────────────────────────────────
 
+    /// Return an owned JSON-compatible snapshot of this per-signer record.
     pub fn to_json(&self) -> MajikSignatureJSON {
         MajikSignatureJSON {
             version: self.version,
@@ -646,6 +664,7 @@ impl MajikSignature {
         Self::from_json(&json)
     }
 
+    /// Decode the legacy Base64-encoded JSON representation and structurally validate the result.
     pub fn deserialize(base64: &str) -> R<MajikSignature> {
         MajikSignatureValidator::assert_non_empty_string(base64, "base64")?;
         let bytes = B64.decode(base64.trim()).map_err(|e| {
@@ -665,6 +684,7 @@ impl MajikSignature {
 
     // ── STATIC KEY HELPERS ───────────────────────────────────────────────────
 
+    /// Extract validated signing public keys from a MajikKey; unlocking is not required.
     pub fn public_keys_from_majik_key(key: &MajikKey) -> R<MajikSignerPublicKeys> {
         let (ed, ml) = signing_public_keys(
             key,
@@ -679,6 +699,7 @@ impl MajikSignature {
         })
     }
 
+    /// Verify content using the public signing keys in a MajikKey; the key need not be unlocked.
     pub fn verify_with_key<S: SignatureLike + ?Sized>(
         content: &[u8],
         signature: &S,
@@ -864,6 +885,7 @@ impl MajikSignature {
 
     // ── CHAIN ANCHOR ─────────────────────────────────────────────────────────
 
+    /// Build the versioned chain memo for a seal hash; this method does not submit a transaction.
     pub fn build_chain_anchor_memo(seal_hash: &str) -> R<MajikChainAnchorMemo> {
         MajikSignatureValidator::validate_seal_hash(seal_hash)?;
         Ok(format!("{MAJIK_NOTARY_MEMO_DOMAIN}{seal_hash}"))
@@ -1473,6 +1495,7 @@ impl MajikSignature {
         MajikSignatureEmbed::sign_detached(file, key, options)
     }
 
+    /// Sign an in-memory batch into one MJKSMAP manifest or separate MJKSIG envelopes.
     pub fn sign_batch_detached(
         files: &[BatchFileInput],
         key: &MajikKey,
@@ -1666,6 +1689,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_files_from_mjksmap_stream(map, files, public_keys, options, streaming)
     }
 
+    /// Resolve and verify in-memory files against a MJKSMAP manifest using an explicit public-key bundle.
     pub fn verify_files_from_mjksmap(
         map: &MajikSignatureMap,
         files: &[BatchVerifyInput],
@@ -1675,6 +1699,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_files_from_mjksmap(map, files, public_keys, options)
     }
 
+    /// Resolve and verify in-memory files against a MJKSMAP manifest using keys extracted from a MajikKey.
     pub fn verify_files_from_mjksmap_with_key(
         map: &MajikSignatureMap,
         files: &[BatchVerifyInput],
@@ -1684,10 +1709,12 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_files_from_mjksmap_with_key(map, files, key, options)
     }
 
+    /// Aggregate per-file results into counts and an overall batch-validity summary.
     pub fn summarize_batch_verification(results: &[FileVerifyResult]) -> BatchVerifySummary {
         MajikSignatureEmbed::summarize_batch_verification(results)
     }
 
+    /// Verify the chronological order of signatures embedded in a file.
     pub fn verify_file_order(
         file: &[u8],
         expected_order: &[OrderEntry<'_>],
@@ -1696,6 +1723,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_file_order(file, expected_order, options)
     }
 
+    /// Verify chronological signing order against a detached envelope.
     pub fn verify_file_detached_order(
         file: &[u8],
         envelope: impl Into<EnvelopeInput>,
@@ -1705,6 +1733,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_detached_order(file, envelope.into(), expected_order, options)
     }
 
+    /// Verify embedded signatures and the file's revision-chain commitments.
     pub fn verify_file_chain(
         file: &[u8],
         mime_type: Option<&str>,
@@ -1713,6 +1742,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_file_chain(file, mime_type, now)
     }
 
+    /// Verify signatures and revision-chain commitments using a detached envelope.
     pub fn verify_file_detached_chain(
         file: &[u8],
         envelope: impl Into<EnvelopeInput>,
@@ -1722,6 +1752,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_detached_chain(file, envelope.into(), mime_type, now)
     }
 
+    /// Verify the final embedded file and the supplied historical revision bytes.
     pub fn verify_file_revisions(
         final_file: &[u8],
         revisions: &[&[u8]],
@@ -1730,6 +1761,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_file_revisions(final_file, revisions, options)
     }
 
+    /// Verify supplied historical revisions against the final file and detached envelope.
     pub fn verify_file_revisions_detached(
         final_file: &[u8],
         revisions: &[&[u8]],
@@ -1739,6 +1771,7 @@ impl MajikSignature {
         MajikSignatureEmbed::verify_detached_revisions(final_file, revisions, envelope.into(), options)
     }
 
+    /// Convert mixed MajikKey/public-key order entries into normalized expected-signer records.
     pub fn normalize_expected_order(expected_order: &[OrderEntry<'_>]) -> R<Vec<ExpectedSigner>> {
         normalize_expected_order(expected_order)
     }
@@ -1771,6 +1804,7 @@ impl MajikSignature {
         )
     }
 
+    /// Read allowlist metadata from the embedded envelope; this does not verify signatures or authorize signers.
     pub fn get_allowlist(file: &[u8], mime_type: Option<&str>) -> R<Option<Vec<ExpectedSigner>>> {
         MajikSignatureEmbed::get_allowlist(
             file,
@@ -1790,6 +1824,7 @@ impl MajikSignature {
         MajikSignatureEmbed::seal(file, key, mime_type, timestamp)
     }
 
+    /// Recompute and compare the structural seal hash; verify the underlying signer signatures separately.
     pub fn verify_seal(file: &[u8], mime_type: Option<&str>) -> R<SealVerificationResult> {
         MajikSignatureEmbed::verify_seal(
             file,
@@ -1797,6 +1832,7 @@ impl MajikSignature {
         )
     }
 
+    /// Return seal metadata without treating it as a cryptographic verification result.
     pub fn get_seal_info(file: &[u8], mime_type: Option<&str>) -> R<Option<SealInfo>> {
         MajikSignatureEmbed::get_seal_info(
             file,
@@ -1804,6 +1840,7 @@ impl MajikSignature {
         )
     }
 
+    /// Return whether the embedded envelope contains seal metadata.
     pub fn is_sealed(file: &[u8], mime_type: Option<&str>) -> R<bool> {
         MajikSignatureEmbed::is_sealed(
             file,
@@ -1813,6 +1850,7 @@ impl MajikSignature {
 
     // ── multi-sig queries ──
 
+    /// Return whether the embedded envelope contains more than one signer record.
     pub fn is_multi_sig(file: &[u8], mime_type: Option<&str>) -> R<bool> {
         MajikSignatureEmbed::is_multi_sig(
             file,
@@ -1820,6 +1858,7 @@ impl MajikSignature {
         )
     }
 
+    /// Evaluate whether a key meets the envelope's current signing policy; this is not a signature operation.
     pub fn can_sign(file: &[u8], key: &MajikKey, mime_type: Option<&str>) -> R<CanSignResult> {
         MajikSignatureEmbed::can_sign(
             file,
@@ -1828,6 +1867,7 @@ impl MajikSignature {
         )
     }
 
+    /// Return signatory status information for the embedded envelope, optionally filtered by category.
     pub fn get_signatories(
         file: &[u8],
         mime_type: Option<&str>,
@@ -1840,18 +1880,22 @@ impl MajikSignature {
         )
     }
 
+    /// Return the envelope's signers that have already signed, if an envelope is present.
     pub fn get_signed_signatories(file: &[u8], mime_type: Option<&str>) -> R<Option<SignatoriesResult>> {
         Self::get_signatories(file, mime_type, Some(SignatoriesFilter::Signed))
     }
 
+    /// Return allowlisted signers who have not yet signed, if an envelope is present.
     pub fn get_pending_signatories(file: &[u8], mime_type: Option<&str>) -> R<Option<SignatoriesResult>> {
         Self::get_signatories(file, mime_type, Some(SignatoriesFilter::Pending))
     }
 
+    /// Return all signed and pending signatories from the embedded envelope.
     pub fn get_all_signatories(file: &[u8], mime_type: Option<&str>) -> R<Option<SignatoriesResult>> {
         Self::get_signatories(file, mime_type, Some(SignatoriesFilter::All))
     }
 
+    /// Return the allowlist-establishing issuer's display information, when present.
     pub fn get_issuer(file: &[u8], mime_type: Option<&str>) -> R<Option<SignatoryInfo>> {
         MajikSignatureEmbed::get_issuer(
             file,
@@ -1859,6 +1903,7 @@ impl MajikSignature {
         )
     }
 
+    /// Return structural envelope metadata without verifying its signatures.
     pub fn get_envelope_info(file: &[u8], mime_type: Option<&str>) -> R<Option<EnvelopeInfo>> {
         MajikSignatureEmbed::get_envelope_info(
             file,
@@ -1868,6 +1913,7 @@ impl MajikSignature {
 
     // ── chain anchors ──
 
+    /// Evaluate whether the envelope permits another chain anchor; does not submit a transaction.
     pub fn can_anchor(file: &[u8], mime_type: Option<&str>) -> R<CanAnchorResult> {
         MajikSignatureEmbed::can_anchor(
             file,
@@ -1889,6 +1935,7 @@ impl MajikSignature {
         .blob)
     }
 
+    /// Read chain-anchor metadata; the method does not query a blockchain or confirm finality.
     pub fn get_chain_anchors(file: &[u8], mime_type: Option<&str>) -> R<Vec<MajikChainAnchor>> {
         MajikSignatureEmbed::get_chain_anchors(
             file,
@@ -1904,6 +1951,7 @@ use crate::core::stamp::{ImageResult, InspectResult, MajikImageSignature, StampR
 
 impl MajikSignature {
     /// ⚠️ Experimental. Sign an image with a DCT layer + appended pixel-row layer.
+    /// Create the experimental image-stamp representation; it is separate from the core file-signature format.
     pub fn stamp_image(
         image: &[u8],
         key: &MajikKey,
@@ -1913,6 +1961,7 @@ impl MajikSignature {
     }
 
     /// ⚠️ Experimental. Verify a stamped image (default Hamming threshold 8).
+    /// Verify the experimental image-stamp record and its embedded signature metadata.
     pub fn verify_stamp(
         image: &[u8],
         hamming_threshold: Option<u32>,
@@ -1921,11 +1970,13 @@ impl MajikSignature {
     }
 
     /// ⚠️ Experimental. Report which stamp layers are present.
+    /// Inspect an image for the experimental stamp metadata without asserting signer trust.
     pub fn inspect_stamp(image: &[u8]) -> InspectResult {
         MajikImageSignature::inspect(image)
     }
 
     /// ⚠️ Experimental.
+    /// Check whether the image contains the experimental stamp marker.
     pub fn is_stamped(image: &[u8]) -> bool {
         MajikImageSignature::is_signed(image)
     }

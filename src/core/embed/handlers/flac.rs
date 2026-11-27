@@ -21,6 +21,7 @@ struct Parsed<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in FLAC audio metadata blocks.
 pub struct FlacHandler;
 
 impl FlacHandler {

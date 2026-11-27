@@ -3,7 +3,7 @@
 //!
 //! Layer 1 (*DCT*): a 150-byte Ed25519-signed stub (pHash + signer + timestamp), Reed-Solomon
 //! protected, hidden in mid-frequency DCT coefficients — survives recompression down to ≈ Q70.
-//! Layer 2 (*pixel row*): the full hybrid [`MajikSignatureJSON`] in rows appended below the image.
+//! Layer 2 (*pixel row*): the full hybrid [`crate::core::types::MajikSignatureJSON`] in rows appended below the image.
 //!
 //! ### Deliberate difference from the TS implementation
 //! TS hashes the *canvas-encoded PNG bytes* of the DCT image for the layer-2 signature, and on
@@ -43,6 +43,7 @@ pub enum ImageSignatureError {
     Signature(#[from] MajikSignatureError),
 }
 
+/// Result type returned by experimental image-stamp operations.
 pub type ImageResult<T> = Result<T, ImageSignatureError>;
 
 fn gen(msg: impl Into<String>) -> ImageSignatureError {
@@ -58,12 +59,14 @@ pub struct StampResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Signer and timestamp metadata extracted from the lossless pixel-row layer.
 pub struct PixelRowMeta {
     pub signer_id: String,
     pub timestamp: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Signer, timestamp, and perceptual-hash metadata extracted from the DCT layer.
 pub struct DctMeta {
     pub signer_id: String,
     pub timestamp: String,
@@ -71,6 +74,7 @@ pub struct DctMeta {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Structural inspection result indicating which stamp layers and metadata are present.
 pub struct InspectResult {
     pub has_pixel_row: bool,
     pub has_dct: bool,
@@ -78,9 +82,16 @@ pub struct InspectResult {
     pub dct_meta: Option<DctMeta>,
 }
 
+/// Experimental dual-layer image signing API; it is separate from the stable file-signature format.
+///
+/// The embedded DCT layer is designed to tolerate some image recompression, while
+/// the pixel-row layer carries a full hybrid signature. Treat this API as experimental.
 pub struct MajikImageSignature;
 
 impl MajikImageSignature {
+    /// Embed the experimental DCT and pixel-row signature layers into an encoded image.
+    ///
+    /// The supplied MajikKey must be unlocked and contain Ed25519 and ML-DSA-87 keys.
     pub fn sign(
         image: &[u8],
         key: &MajikKey,
@@ -179,6 +190,9 @@ impl MajikImageSignature {
         Ok(StampResult { blob, stub, full_envelope })
     }
 
+    /// Verify the available image-stamp layers and report which layer(s) passed.
+    ///
+    /// The optional Hamming threshold controls perceptual-hash matching for the DCT layer.
     pub fn verify(image: &[u8], hamming_threshold: Option<u32>) -> ImageResult<ImageVerificationResult> {
         let threshold = hamming_threshold.unwrap_or(8);
         let decoded = decode_image(image)?;
@@ -402,6 +416,7 @@ impl MajikImageSignature {
         }
     }
 
+    /// Check whether either experimental stamp marker can be structurally inspected; this does not establish validity.
     pub fn is_signed(image: &[u8]) -> bool {
         let info = Self::inspect(image);
         info.has_pixel_row || info.has_dct
