@@ -332,3 +332,18 @@ fn rejects_oversized_in_memory_envelopes_and_base64_before_decode() {
     let error = MajikSignatureEnvelope::deserialize(&oversized_base64).unwrap_err();
     assert!(error.to_string().contains("maximum supported encoded size"));
 }
+
+
+#[test]
+fn rejects_invalid_revision_metadata_from_envelope_builder() {
+    let version = FileVersion {
+        version: 1,
+        timestamp: "2026-11-28T00:00:00.000Z".into(),
+        content_hash: bytes_to_base64(&[0x5a; 32]),
+        previous_version_hash: None,
+        created_by: None,
+        message: Some("x".repeat(MAX_FILE_VERSION_MESSAGE_CHARS + 1)),
+    };
+    let error = MajikSignatureEnvelope::empty().with_file_version(version).unwrap_err();
+    assert!(error.to_string().contains("message exceeds the limit"));
+}
