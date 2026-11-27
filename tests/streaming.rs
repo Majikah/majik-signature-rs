@@ -92,6 +92,44 @@ fn streaming_hash_enforces_limits_and_cancellation() {
 }
 
 #[test]
+fn streaming_hash_enforces_expected_total_length() {
+    let bytes = vec![0x33; 4097];
+
+    let mut exact_reader = io::Cursor::new(&bytes);
+    let mut exact_options = StreamingHashOptions {
+        total_bytes: Some(bytes.len() as u64),
+        ..StreamingHashOptions::default()
+    };
+    let exact = hash_reader(&mut exact_reader, &mut exact_options).unwrap();
+    assert_eq!(exact.bytes_processed, bytes.len() as u64);
+    assert_eq!(exact.total_bytes, Some(bytes.len() as u64));
+
+    let mut overlong_reader = io::Cursor::new(&bytes);
+    let mut overlong_options = StreamingHashOptions {
+        total_bytes: Some(bytes.len() as u64 - 1),
+        ..StreamingHashOptions::default()
+    };
+    assert!(hash_reader(&mut overlong_reader, &mut overlong_options).is_err());
+
+    let mut truncated_reader = io::Cursor::new(&bytes[..1000]);
+    let mut truncated_options = StreamingHashOptions {
+        total_bytes: Some(bytes.len() as u64),
+        ..StreamingHashOptions::default()
+    };
+    assert!(hash_reader(&mut truncated_reader, &mut truncated_options).is_err());
+}
+
+#[test]
+fn automatic_hash_rejects_declared_length_mismatch() {
+    let bytes = vec![0x44; 32];
+    let mut options = StreamingHashOptions {
+        total_bytes: Some((bytes.len() + 1) as u64),
+        ..StreamingHashOptions::default()
+    };
+    assert!(hash_bytes_auto(&bytes, &mut options).is_err());
+}
+
+#[test]
 fn streaming_hash_reports_progress() {
     let bytes = vec![0x22; 1024 * 1024 + 19];
     let mut reader = io::Cursor::new(&bytes);
