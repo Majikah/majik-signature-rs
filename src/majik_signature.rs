@@ -24,12 +24,14 @@ use zeroize::Zeroizing;
 use crate::anchor::types::MajikChainAnchorMemo;
 use crate::core::cbor::{decode_cbor, encode_cbor, signature_from_cbor, signature_to_cbor};
 use crate::core::constants::*;
+use crate::core::envelope::MajikSignatureEnvelope;
+use crate::core::mjksmap::MajikSignatureMap;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 use crate::core::payload::{
     build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
 };
-use crate::core::streaming::{hash_reader, StreamingHashOptions};
+use crate::core::streaming::{hash_reader, BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress, StreamingHashOptions, StreamingHashProgress};
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
 use crate::core::validator::MajikSignatureValidator;
@@ -1475,6 +1477,152 @@ impl MajikSignature {
         options: Option<&BatchSignOptions>,
     ) -> R<BatchSignResult> {
         MajikSignatureEmbed::sign_batch_detached(files, key, options)
+    }
+
+    /// Sign multiple canonical byte streams as detached signatures without materializing
+    /// their contents. Inputs are consumed sequentially using one bounded read buffer per file.
+    ///
+    /// This low-level API signs the exact bytes supplied by each reader. It does not parse or
+    /// strip an existing embedded signature envelope from a stream.
+    pub fn sign_batch_detached_stream(
+        files: &mut [StreamingBatchFileInput<'_>],
+        key: &MajikKey,
+        options: Option<&BatchSignOptions>,
+        mut streaming: BatchStreamingOptions<'_>,
+    ) -> R<BatchSignResult> {
+        let default_options = BatchSignOptions::default();
+        let options = options.unwrap_or(&default_options);
+        if files.is_empty() {
+            return Err(MajikSignatureError::validation(
+                "Batch must contain at least one file.",
+                Some("files"),
+            ));
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        for file in files.iter() {
+            if file.path.trim().is_empty() {
+                return Err(MajikSignatureError::validation(
+                    "Every batch file must have a non-empty path.",
+                    Some("path"),
+                ));
+            }
+            if !seen.insert(file.path.as_str()) {
+                return Err(MajikSignatureError::validation(
+                    format!("Duplicate path in batch: \"{}\"", file.path),
+                    Some("path"),
+                ));
+            }
+        }
+
+        let mode = options.mode.unwrap_or_default();
+        let mut failures = Vec::new();
+        let mut map = (mode == BatchSignMode::Map).then(MajikSignatureMap::empty);
+        let mut signatures = Vec::new();
+        let mut batch_progress = streaming.on_progress.take();
+        let chunk_size = streaming.chunk_size;
+        let max_bytes_per_file = streaming.max_bytes_per_file;
+        let cancellation = streaming.cancellation;
+
+        for (file_index, file) in files.iter_mut().enumerate() {
+            let path = file.path.clone();
+            let mime_type = file.mime_type.clone().filter(|value| !value.is_empty());
+            let total_bytes = file.total_bytes;
+
+            let attempt = (|| -> R<(MajikSignatureEnvelope, MajikSignature, u64)> {
+                let empty_envelope = MajikSignatureEnvelope::empty();
+                let allowlist_hash =
+                    empty_envelope.resolve_allowlist_hash_for(key, options.expected_signers.as_deref());
+                let sign_options = SignOptions {
+                    content_type: options.content_type.clone(),
+                    timestamp: options.timestamp.clone(),
+                    valid_until: options.valid_until.clone(),
+                    allowlist_hash,
+                    ..Default::default()
+                };
+
+                let mut bytes_processed = 0u64;
+                let mut progress_callback = |progress: StreamingHashProgress| {
+                    bytes_processed = progress.bytes_processed;
+                    if let Some(callback) = batch_progress.as_deref_mut() {
+                        callback(StreamingBatchProgress {
+                            file_index,
+                            total_files: files.len(),
+                            path: path.clone(),
+                            bytes_processed: progress.bytes_processed,
+                            total_bytes: progress.total_bytes,
+                        });
+                    }
+                };
+                let mut hash_options = StreamingHashOptions {
+                    chunk_size,
+                    threshold_bytes: crate::core::streaming::DEFAULT_HASH_STREAMING_THRESHOLD,
+                    max_bytes: max_bytes_per_file,
+                    total_bytes,
+                    cancellation,
+                    on_progress: Some(&mut progress_callback),
+                };
+                let signature = MajikSignature::sign_reader_with_options(
+                    file.reader,
+                    key,
+                    Some(&sign_options),
+                    &mut hash_options,
+                )?;
+
+                let base = if let Some(expected) = options.expected_signers.as_deref().filter(|v| !v.is_empty()) {
+                    empty_envelope.with_allowlist(expected, key.fingerprint())?
+                } else {
+                    empty_envelope
+                };
+                let envelope = base.with_signature(signature.to_json())?;
+                Ok((envelope, signature, bytes_processed))
+            })();
+
+            match attempt {
+                Ok((envelope, signature, bytes_processed)) => match mode {
+                    BatchSignMode::Map => {
+                        let entry = MjksMapEntry {
+                            path: path.clone(),
+                            content_hash: signature.content_hash().to_string(),
+                            size: Some(bytes_processed),
+                            mime_type,
+                            envelope: envelope.to_json(),
+                        };
+                        let current = map.take().expect("map mode always initializes a manifest");
+                        map = Some(current.with_entry(entry)?);
+                    }
+                    BatchSignMode::Separate => {
+                        signatures.push(SeparateSignature {
+                            path: path.clone(),
+                            blob: envelope.to_mjksig()?,
+                        });
+                    }
+                },
+                Err(error) => {
+                    if !options.continue_on_error {
+                        return Err(MajikSignatureError::Generic {
+                            message: format!(
+                                "Batch streaming signing failed on \"{path}\": {}",
+                                error.message()
+                            ),
+                            cause: Some(Box::new(error)),
+                        });
+                    }
+                    failures.push(BatchSignFailure {
+                        path,
+                        error: error.message().to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(match map {
+            Some(map) => {
+                let map_blob = map.to_mjksmap();
+                BatchSignResult::Map { map, map_blob, failures }
+            }
+            None => BatchSignResult::Separate { signatures, failures },
+        })
     }
 
     /// Verify a file's embedded signatures (one result per signer).
