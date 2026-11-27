@@ -192,6 +192,6 @@ fn enforces_binary_header_length_utf8_and_payload_limits() {
         .to_string()
         .contains("UTF-8"));
 
-    let oversized_json = " ".repeat(MAX_MJKSMAP_BYTES + 1);
+    let oversized_json = " ".repeat(MAX_MJKSMAP_JSON_BYTES + 1);
     assert!(MajikSignatureMap::from_json_str(&oversized_json).is_err());
 }
