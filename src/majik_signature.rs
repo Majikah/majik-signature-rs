@@ -1602,9 +1602,7 @@ impl MajikSignature {
                 },
                 Err(error) => {
                     if !options.continue_on_error
-                        || cancellation.is_some_and(|flag| {
-                            flag.load(std::sync::atomic::Ordering::Acquire)
-                        })
+                        || cancellation.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire))
                     {
                         return Err(MajikSignatureError::Generic {
                             message: format!(
