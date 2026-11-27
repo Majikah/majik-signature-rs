@@ -51,10 +51,7 @@ pub fn hash_reader<Rd: Read>(
     let mut allocation = Vec::new();
     allocation.try_reserve_exact(options.chunk_size).map_err(|error| {
         MajikSignatureError::with_cause(
-            format!(
-                "Unable to allocate the {}-byte streaming hash buffer",
-                options.chunk_size
-            ),
+            format!("Unable to allocate the {}-byte streaming hash buffer", options.chunk_size),
             error,
         )
     })?;
