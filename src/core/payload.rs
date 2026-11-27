@@ -11,12 +11,11 @@ use crate::core::constants::{
 };
 use crate::core::types::{MajikSignatureJSON, MajikTsaPayload};
 
-/// Fields that describe a signature being created or verified (TS `PayloadFields`).
-#[derive(Debug, Clone, Default)]
-/// Inputs used to construct the canonical, domain-separated per-signer payload.
+/// Inputs used to construct the canonical, domain-separated per-signer payload (TS `PayloadFields`).
 ///
 /// Field order and omission semantics are protocol-critical: both hybrid
 /// algorithms sign the exact bytes returned by the builder.
+#[derive(Debug, Clone, Default)]
 pub struct PayloadFields<'a> {
     /// Signer fingerprint (serialized as `id`).
     pub signer_id: &'a str,
