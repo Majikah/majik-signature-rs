@@ -199,7 +199,7 @@ impl MajikSignature {
     }
 
     /// Configurable reader-based signing with progress, cancellation and input limits.
-    pub fn sign_reader_with_options<Rd: Read>(
+    pub fn sign_reader_with_options<Rd: Read + ?Sized>(
         reader: &mut Rd,
         key: &MajikKey,
         options: Option<&SignOptions>,
