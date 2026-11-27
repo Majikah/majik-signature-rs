@@ -10,6 +10,7 @@
 //! This is a serialization format only; the signed canonical payload is unchanged.
 
 pub mod codec;
+/// JSON-model to CBOR-native wire adapters for signatures, envelopes, and anchors.
 pub mod wire;
 
 pub use codec::{decode_cbor, encode_cbor, CborError};
