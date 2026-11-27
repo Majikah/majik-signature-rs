@@ -3,8 +3,9 @@
 //! Pure-Rust port of the TypeScript `@majikah/majik-signature`: hybrid post-quantum content
 //! signing (Ed25519 + ML-DSA-87) for the Majikah ecosystem, built on [`majik_key`].
 //!
-//! Layout mirrors the TS source tree: `index.ts` → this file / `mod.rs`,
-//! `majik-signature.ts` → [`MajikSignature`], `core/**` → [`core`], `anchor/**` → [`anchor`].
+//! The Rust crate follows the same protocol and conceptual layers as the TypeScript
+//! implementation, while using Rust-native ownership, synchronous reader APIs,
+//! and Rust-specific modules for streaming, format handling, and secret cleanup.
 
 pub mod anchor;
 #[cfg(feature = "cli")]
