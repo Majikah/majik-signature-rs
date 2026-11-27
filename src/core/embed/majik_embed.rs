@@ -976,7 +976,7 @@ impl MajikSignatureEmbed {
             let signatures: Vec<_> = match options.expected_signer_id.as_deref() {
                 Some(expected) => {
                     envelope.signatures().iter().filter(|signature| signature.signer_id == expected).collect()
-                },
+                }
                 None => envelope.signatures().iter().collect(),
             };
             let verify_results: Vec<VerificationResult> = if signatures.is_empty() {
