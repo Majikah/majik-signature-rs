@@ -1661,13 +1661,7 @@ impl MajikSignature {
         options: Option<&BatchVerifyOptions>,
         streaming: BatchStreamingOptions<'_>,
     ) -> R<Vec<FileVerifyResult>> {
-        MajikSignatureEmbed::verify_files_from_mjksmap_stream(
-            map,
-            files,
-            public_keys,
-            options,
-            streaming,
-        )
+        MajikSignatureEmbed::verify_files_from_mjksmap_stream(map, files, public_keys, options, streaming)
     }
 
     pub fn verify_files_from_mjksmap(
