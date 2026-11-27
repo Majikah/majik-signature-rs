@@ -271,6 +271,28 @@ fn detached_batch_reader_signing_can_continue_after_a_file_failure() {
 }
 
 #[test]
+fn detached_batch_reader_signing_stops_on_cancellation_even_when_continue_is_enabled() {
+    let key = new_key("streaming-batch-cancel");
+    let bytes = b"cancelled batch input".to_vec();
+    let mut reader = io::Cursor::new(bytes.clone());
+    let mut files = vec![StreamingBatchFileInput {
+        path: "cancelled.txt".into(),
+        reader: &mut reader,
+        total_bytes: Some(bytes.len() as u64),
+        mime_type: None,
+    }];
+    let options = BatchSignOptions { continue_on_error: true, ..BatchSignOptions::default() };
+    let cancellation = AtomicBool::new(true);
+    let streaming = BatchStreamingOptions {
+        cancellation: Some(&cancellation),
+        ..BatchStreamingOptions::default()
+    };
+
+    let result = MajikSignature::sign_batch_detached_stream(&mut files, &key, Some(&options), streaming);
+    assert!(result.is_err());
+}
+
+#[test]
 fn ed25519_scalar_malleability_is_rejected() {
     let key = new_key("malleability-alice");
     let content = b"malleability regression fixture";
