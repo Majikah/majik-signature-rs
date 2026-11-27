@@ -766,7 +766,10 @@ The current documented values are:
 ```text
 MJKSMAP_MAGIC        = ASCII "MJKSMAP"
 MJKSMAP_MAGIC_LEN    = 7
-MJKSMAP_JSON_VERSION = 0x01  (legacy JSON reader)\nMJKSMAP_CBOR_VERSION = 0x02  (current writer)\nMJKSMAP_VERSION      = 0x02  (current container version)\nMJKSMAP_SCHEMA_VERSION = 0x01
+MJKSMAP_JSON_VERSION   = 0x01  (legacy JSON reader)
+MJKSMAP_CBOR_VERSION   = 0x02  (current writer)
+MJKSMAP_VERSION        = 0x02  (current container version)
+MJKSMAP_SCHEMA_VERSION = 0x01
 MJKSMAP_HEADER_LEN   = 13
 ```
 
