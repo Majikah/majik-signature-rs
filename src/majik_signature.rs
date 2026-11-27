@@ -885,6 +885,7 @@ impl MajikSignature {
 
     // ── CHAIN ANCHOR ─────────────────────────────────────────────────────────
 
+    /// Build the versioned chain memo for a seal hash; this method does not submit a transaction.
     pub fn build_chain_anchor_memo(seal_hash: &str) -> R<MajikChainAnchorMemo> {
         MajikSignatureValidator::validate_seal_hash(seal_hash)?;
         Ok(format!("{MAJIK_NOTARY_MEMO_DOMAIN}{seal_hash}"))
