@@ -22,7 +22,7 @@ fn cancelled(options: &StreamingHashOptions<'_>) -> bool {
 ///
 /// The reader is consumed from its current position to EOF. No per-chunk
 /// prefix, delimiter, or intermediate digest is added to the message.
-pub fn hash_reader<Rd: Read>(
+pub fn hash_reader<Rd: Read + ?Sized>(
     reader: &mut Rd,
     options: &mut StreamingHashOptions<'_>,
 ) -> R<StreamingHashResult> {
