@@ -12,7 +12,7 @@ pub struct FormatHandlerRegistry {
 
 impl FormatHandlerRegistry {
     /// Create a registry populated with the built-in format handlers.
-pub fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -33,7 +33,7 @@ pub fn new() -> Self {
     }
 
     /// Return the identifiers of all handlers registered in this instance.
-pub fn list_handlers(&self) -> Vec<String> {
+    pub fn list_handlers(&self) -> Vec<String> {
         let mut names: Vec<String> = self.handlers.iter().map(|h| h.name().to_string()).collect();
         names.push(self.fallback.name().to_string());
         names
