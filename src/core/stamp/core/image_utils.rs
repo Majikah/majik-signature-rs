@@ -16,6 +16,7 @@ use crate::core::stamp::core::types::ImageMimeType;
 pub const MIN_DIMENSION: usize = 640;
 
 #[derive(Debug, Clone)]
+/// RGBA pixel buffer with its decoded width and height.
 pub struct ImagePixels {
     /// RGBA8, row-major.
     pub pixels: Vec<u8>,
@@ -24,6 +25,7 @@ pub struct ImagePixels {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Output encoding format and quality options for image pixel encoding.
 pub struct ImageEncodeOptions {
     pub mime_type: Option<ImageMimeType>,
     /// 0–1 for JPEG/WebP; default 0.92.
