@@ -249,12 +249,13 @@ fn rejects_cbor_with_multiple_top_level_items() {
     let payload = &valid[MJKSMAP_HEADER_LEN..];
     let mut appended = payload.to_vec();
     appended.push(0xf6); // CBOR null as an extra top-level data item
-    let invalid = container(MJKSMAP_CBOR_VERSION, &appended, 0, None, &[]);
-    assert!(MajikSignatureMap::from_mjksmap(&invalid)
+    assert!(decode_cbor(&appended)
         .unwrap_err()
         .to_string()
         .to_lowercase()
         .contains("trailing"));
+    let invalid = container(MJKSMAP_CBOR_VERSION, &appended, 0, None, &[]);
+    assert!(MajikSignatureMap::from_mjksmap(&invalid).is_err());
 }
 
 #[test]
