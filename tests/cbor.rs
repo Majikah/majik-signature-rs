@@ -322,7 +322,11 @@ fn embedded_codec_round_trip_legacy_json_and_rejections() {
 
 #[test]
 fn rejects_oversized_in_memory_envelopes_and_base64_before_decode() {
-    let oversized_value = Value::String("x".repeat(MAX_ENVELOPE_BYTES + 1));
+    let oversized_value = serde_json::json!({
+        "version": MAJIK_ENVELOPE_VERSION,
+        "signatures": [],
+        "padding": "x".repeat(MAX_ENVELOPE_BYTES + 1)
+    });
     let error = MajikSignatureEnvelope::from_json_value(oversized_value).unwrap_err();
     assert!(error.to_string().contains("maximum supported size"));
 
