@@ -266,6 +266,21 @@ continue with remaining readers.
 The reader must expose the exact canonical unsigned bytes to sign. The low-level
 streaming batch API does not parse or strip existing embedded signature metadata.
 
+### Streaming MJKSMAP verification
+
+Use `MajikSignature::verify_files_from_mjksmap_stream()` with
+`StreamingBatchVerifyInput` readers to verify a manifest without materializing
+file contents. Each reader is hashed once. The resolver preserves the buffered
+API semantics: an exact-path digest mismatch is `Tampered`; when the path is
+absent, a digest match can resolve the file as `Relocated`. Selected envelope
+signatures are checked against the streamed digest and the supplied trusted
+public keys. `BatchStreamingOptions` controls the bounded read buffer,
+per-file byte limit, cancellation, and per-file progress.
+
+The streaming verifier also consumes exact canonical unsigned bytes. It does
+not apply format-aware stripping; use the client path-streaming APIs when the
+input file requires a format handler to derive its canonical content.
+
 ## Rust API notes
 
 - **Synchronous.** `async`/`Promise`/`Blob`/`Uint8Array` become plain functions over `&[u8]` / `Vec<u8>`. A `Blob`'s declared type is passed as `mime_type` in the options structs.
