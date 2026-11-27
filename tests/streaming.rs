@@ -291,6 +291,49 @@ fn detached_batch_reader_signing_stops_on_cancellation_even_when_continue_is_ena
 }
 
 #[test]
+fn detached_batch_reader_signing_emits_separate_mjksig_outputs() {
+    let key = new_key("streaming-batch-separate");
+    let first = b"separate streamed result one".to_vec();
+    let second = b"separate streamed result two".to_vec();
+    let mut first_reader = io::Cursor::new(first.clone());
+    let mut second_reader = io::Cursor::new(second.clone());
+    let mut files = vec![
+        StreamingBatchFileInput {
+            path: "one.txt".into(),
+            reader: &mut first_reader,
+            total_bytes: Some(first.len() as u64),
+            mime_type: None,
+        },
+        StreamingBatchFileInput {
+            path: "two.txt".into(),
+            reader: &mut second_reader,
+            total_bytes: Some(second.len() as u64),
+            mime_type: None,
+        },
+    ];
+    let options = BatchSignOptions {
+        mode: Some(BatchSignMode::Separate),
+        ..BatchSignOptions::default()
+    };
+    let result = MajikSignature::sign_batch_detached_stream(
+        &mut files,
+        &key,
+        Some(&options),
+        BatchStreamingOptions::default(),
+    )
+    .unwrap();
+
+    let BatchSignResult::Separate { signatures, failures } = result else {
+        panic!("expected separate signature results");
+    };
+    assert!(failures.is_empty());
+    assert_eq!(signatures.len(), 2);
+    assert_eq!(signatures[0].path, "one.txt");
+    assert_eq!(signatures[1].path, "two.txt");
+    assert!(signatures.iter().all(|item| !item.blob.is_empty()));
+}
+
+#[test]
 fn ed25519_scalar_malleability_is_rejected() {
     let key = new_key("malleability-alice");
     let content = b"malleability regression fixture";
