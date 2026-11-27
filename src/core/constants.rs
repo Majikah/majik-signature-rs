@@ -130,7 +130,7 @@ pub const MAX_MJKSMAP_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_MJKSMAP_JSON_BYTES: usize = 24 * 1024 * 1024;
 /// Maximum entries accepted in one MJKSMAP manifest.
 pub const MAX_MJKSMAP_ENTRIES: usize = 10_000;
-/// Maximum normalized logical path length in UTF-16 code units.
+/// Maximum input path length before normalization, measured in UTF-16 code units.
 pub const MAX_MJKSMAP_PATH_CHARS: usize = 4_096;
 pub const MAX_CBOR_INPUT_BYTES: usize = MAX_ENVELOPE_BYTES;
 pub const MAX_CHAIN_ANCHORS: usize = 256;
