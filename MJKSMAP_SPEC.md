@@ -216,7 +216,7 @@ Required: non-empty after trimming.
 
 The intended value is the Base64 representation of the SHA-256 digest of the file bytes represented by the entry.
 
-The JSON model validator requires a canonical Base64-encoded 32-byte SHA-256 digest. The v2 CBOR representation stores the same digest as a raw 32-byte byte string.
+In the public JSON model this is a canonical Base64-encoded 32-byte SHA-256 digest. In the v2 CBOR payload the same digest is a raw 32-byte byte string.
 
 ### 6.3 `envelope`
 
@@ -758,6 +758,9 @@ MJKSMAP_MAGIC_LEN
 MJKSMAP_HEADER_LEN
 MJKSMAP_MEDIA_TYPE
 MJKSMAP_SUPPORTED_VERSIONS
+MJKSMAP_JSON_VERSION
+MJKSMAP_CBOR_VERSION
+MJKSMAP_SCHEMA_VERSION
 MJKSMAP_VERSION
 ```
 
