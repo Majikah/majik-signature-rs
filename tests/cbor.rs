@@ -320,7 +320,6 @@ fn embedded_codec_round_trip_legacy_json_and_rejections() {
     assert!(parse_embedded_envelope(&format!("{p}{b64_json}")).is_err());
 }
 
-
 #[test]
 fn rejects_oversized_in_memory_envelopes_and_base64_before_decode() {
     let oversized_value = Value::String("x".repeat(MAX_ENVELOPE_BYTES + 1));
@@ -332,7 +331,6 @@ fn rejects_oversized_in_memory_envelopes_and_base64_before_decode() {
     let error = MajikSignatureEnvelope::deserialize(&oversized_base64).unwrap_err();
     assert!(error.to_string().contains("maximum supported encoded size"));
 }
-
 
 #[test]
 fn rejects_invalid_revision_metadata_from_envelope_builder() {
