@@ -143,6 +143,20 @@ impl MajikSignatureEnvelope {
         Self { data }
     }
 
+    /// Validate a builder-produced value before allowing it into an envelope.
+    /// This shares the exact schema and aggregate byte ceilings used by parsers.
+    fn try_new(data: MultiSigEnvelope) -> R<MajikSignatureEnvelope> {
+        validate_envelope_serialized_size(&data)?;
+        let value = serde_json::to_value(&data).map_err(|error| {
+            MajikSignatureError::serialization_with_cause(
+                "Failed to serialize envelope builder result",
+                error,
+            )
+        })?;
+        validate_shape(&value)?;
+        Ok(Self::new(data))
+    }
+
     // ── Getters ──────────────────────────────────────────────────────────────
 
     pub fn version(&self) -> u8 {
@@ -214,7 +228,7 @@ impl MajikSignatureEnvelope {
         let mut versions = chain.to_vec();
         versions.push(entry);
         next.file_versions = Some(versions);
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Structural linkage check of `fileVersions` — touches no signature.
@@ -393,7 +407,7 @@ impl MajikSignatureEnvelope {
             Some(i) => next.signatures[i] = sig,
             None => next.signatures.push(sig),
         }
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Establish the allowlist. Only the first signer may do so, and only once.
@@ -417,7 +431,7 @@ impl MajikSignatureEnvelope {
         let mut next = self.data.clone();
         next.allowlist = Some(allowlist.to_vec());
         next.allowlist_signer_id = Some(signer_id.to_string());
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Seal the envelope (SHA3-512 over the signatory set + timestamp). Issuer-only when an
@@ -439,7 +453,7 @@ impl MajikSignatureEnvelope {
         next.seal_hash = Some(seal_hash);
         next.seal_timestamp = Some(ts);
         next.sealed_by = Some(sealed_by.to_string());
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Register a confirmed chain anchor (replaces one with the same `id`).
@@ -461,7 +475,7 @@ impl MajikSignatureEnvelope {
         }
         let mut next = self.data.clone();
         next.chain_anchors = Some(anchors);
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     // ── Seal ─────────────────────────────────────────────────────────────────
