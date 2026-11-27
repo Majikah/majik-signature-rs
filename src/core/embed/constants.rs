@@ -7,13 +7,20 @@ pub const TRAILER_SUFFIX_LENGTH: usize = 16;
 
 /// Key / keyword under which the envelope is stored in text-like containers.
 pub const SIGNATURE_KEY: &str = "majik-signature";
+/// Namespace URI used to identify Majik Signature metadata in supported file formats.
 pub const MAJIK_NAMESPACE: &str = "https://signature.majikah.solutions";
 
+/// PNG ancillary chunk type used for international text metadata.
 pub const PNG_CHUNK_TYPE: &str = "iTXt";
+/// PNG text keyword identifying the embedded Majik Signature payload.
 pub const PNG_KEYWORD: &str = "majik-signature";
+/// RIFF chunk identifier used by supported RIFF-based format handlers.
 pub const RIFF_CHUNK_FOURCC: &str = "majk";
+/// ID3 user-text description identifying the Majik Signature metadata frame.
 pub const ID3_TXXX_DESCRIPTION: &str = "MAJIK-SIGNATURE";
+/// ZIP entry name used to store embedded envelope metadata in Office/ODF packages.
 pub const OFFICE_ZIP_ENTRY: &str = "majik-signature.json";
+/// ISO-BMFF box type used for Majik Signature metadata.
 pub const MP4_BOX_TYPE: &str = "majk";
 /// Custom metadata key for MKV/WebM.
 pub const MKV_TAG_NAME: &str = "MAJIK_SIGNATURE";
