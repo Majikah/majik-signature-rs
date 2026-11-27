@@ -3,7 +3,7 @@
 //!
 //! Layer 1 (*DCT*): a 150-byte Ed25519-signed stub (pHash + signer + timestamp), Reed-Solomon
 //! protected, hidden in mid-frequency DCT coefficients — survives recompression down to ≈ Q70.
-//! Layer 2 (*pixel row*): the full hybrid [`MajikSignatureJSON`] in rows appended below the image.
+//! Layer 2 (*pixel row*): the full hybrid [`crate::core::types::MajikSignatureJSON`] in rows appended below the image.
 //!
 //! ### Deliberate difference from the TS implementation
 //! TS hashes the *canvas-encoded PNG bytes* of the DCT image for the layer-2 signature, and on
