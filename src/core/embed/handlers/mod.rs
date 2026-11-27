@@ -1,5 +1,6 @@
 //! Port of `core/embed/handlers/index.ts` — the per-format embed handlers.
 
+/// FLAC metadata handler for embedded Majik Signature envelopes.
 pub mod flac;
 /// JPEG APP-segment metadata handler.
 pub mod jpeg;
