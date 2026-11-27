@@ -65,6 +65,7 @@ static FALLBACK: FallbackHandler = FallbackHandler;
 
 /// Options for [`MajikSignatureEmbed::sign_and_embed`].
 #[derive(Debug, Clone, Default)]
+/// Options for signing a file and embedding the resulting envelope in its native format.
 pub struct SignAndEmbedOptions {
     pub embed: EmbedOptions,
     pub content_type: Option<String>,
@@ -78,6 +79,7 @@ pub struct SignAndEmbedOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Output bytes and metadata produced by an embedded-signing operation.
 pub struct SignAndEmbedResult {
     pub blob: Vec<u8>,
     pub handler: String,
@@ -87,6 +89,7 @@ pub struct SignAndEmbedResult {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Options for signing canonical file bytes while keeping the envelope detached.
 pub struct SignDetachedOptions {
     pub embed: EmbedOptions,
     pub content_type: Option<String>,
@@ -104,6 +107,7 @@ pub struct SignDetachedOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Detached signing output, including stripped canonical bytes and the resulting envelope.
 pub struct SignDetachedResult {
     /// The file with any embedded envelope stripped (the exact bytes that were signed).
     pub blob: Vec<u8>,
@@ -115,6 +119,7 @@ pub struct SignDetachedResult {
 
 /// Options shared by the verify entry points.
 #[derive(Debug, Clone, Default)]
+/// Shared options for embedded and detached file verification.
 pub struct VerifyFileOptions {
     pub mime_type: Option<String>,
     pub expected_signer_id: Option<String>,
@@ -124,12 +129,14 @@ pub struct VerifyFileOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+/// MIME and strictness options for chronological signature-order verification.
 pub struct OrderOptions {
     pub mime_type: Option<String>,
     pub strict: bool,
 }
 
 #[derive(Debug, Clone)]
+/// Output of sealing an embedded envelope, including the updated file and seal metadata.
 pub struct SealResult {
     pub blob: Vec<u8>,
     pub seal_info: SealInfo,
@@ -141,6 +148,7 @@ pub struct SealResult {
 pub type ResolvePublicKeys<'a> = dyn Fn(&str) -> R<MajikSignerPublicKeys> + 'a;
 
 #[derive(Default)]
+/// Inputs needed to verify an archived revision set, including optional trusted signer-key resolution.
 pub struct VerifyRevisionsOptions<'a> {
     pub mime_type: Option<String>,
     pub now: Option<Timestamp>,
@@ -683,6 +691,7 @@ impl MajikSignatureEmbed {
 
     // ── EXTRACT / VERIFY ─────────────────────────────────────────────────────
 
+    /// Extract and parse an embedded envelope, returning `None` when the format contains no signature.
     pub fn extract(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<ExtractResult>> {
         let p = Self::prepare_mime(file, options.and_then(|o| o.mime_type.as_deref()));
         let Some(raw) = p.handler.extract(p.bytes)?.filter(|r| !r.is_empty()) else { return Ok(None) };
@@ -725,6 +734,7 @@ impl MajikSignatureEmbed {
         )
     }
 
+    /// Verify embedded signer records using public keys obtained from a MajikKey.
     pub fn verify_with_key(
         file: &[u8],
         key: &MajikKey,
@@ -772,6 +782,7 @@ impl MajikSignatureEmbed {
         )
     }
 
+    /// Verify file bytes against a detached envelope using public keys obtained from a MajikKey.
     pub fn verify_detached_with_key(
         file: &[u8],
         envelope: EnvelopeInput,
@@ -1036,6 +1047,7 @@ impl MajikSignatureEmbed {
         Ok(results)
     }
 
+    /// Resolve and verify a batch of file inputs against a MJKSMAP using a MajikKey's public keys.
     pub fn verify_files_from_mjksmap_with_key(
         map: &MajikSignatureMap,
         files: &[BatchVerifyInput],
@@ -1046,6 +1058,7 @@ impl MajikSignatureEmbed {
         Self::verify_files_from_mjksmap(map, files, &keys, options)
     }
 
+    /// Aggregate per-file verification results into the public batch summary.
     pub fn summarize_batch_verification(results: &[FileVerifyResult]) -> BatchVerifySummary {
         let mut s = BatchVerifySummary { total: results.len(), ..Default::default() };
         for r in results {
@@ -1062,6 +1075,7 @@ impl MajikSignatureEmbed {
 
     // ── ORDER / CHAIN / REVISIONS ────────────────────────────────────────────
 
+    /// Verify chronological order for signer records embedded in a file.
     pub fn verify_file_order(
         file: &[u8],
         expected_order: &[OrderEntry<'_>],
@@ -1097,6 +1111,7 @@ impl MajikSignatureEmbed {
         )
     }
 
+    /// Verify chronological signing order against a detached envelope.
     pub fn verify_detached_order(
         file: &[u8],
         envelope: EnvelopeInput,
@@ -1436,6 +1451,7 @@ impl MajikSignatureEmbed {
         })
     }
 
+    /// Recompute and compare the embedded structural seal commitment; verify signer records separately.
     pub fn verify_seal(file: &[u8], options: Option<&ExtractOptions>) -> R<SealVerificationResult> {
         Ok(match Self::extract(file, options)? {
             None => SealVerificationResult {
@@ -1447,18 +1463,22 @@ impl MajikSignatureEmbed {
         })
     }
 
+    /// Return structural seal metadata without cryptographically verifying the signer records.
     pub fn get_seal_info(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<SealInfo>> {
         Ok(Self::extract(file, options)?.and_then(|r| r.envelope.get_seal_info()))
     }
 
+    /// Check whether an embedded envelope contains seal metadata.
     pub fn is_sealed(file: &[u8], options: Option<&ExtractOptions>) -> R<bool> {
         Ok(Self::extract(file, options)?.map(|r| r.envelope.is_sealed()).unwrap_or(false))
     }
 
+    /// Check whether the embedded envelope contains multiple signer records.
     pub fn is_multi_sig(file: &[u8], options: Option<&ExtractOptions>) -> R<bool> {
         Ok(Self::extract(file, options)?.map(|r| r.envelope.is_multi_sig()).unwrap_or(false))
     }
 
+    /// Evaluate whether a key satisfies the envelope's current signing policy; this is a preflight query.
     pub fn can_sign(
         file: &[u8],
         key: &MajikKey,
@@ -1470,6 +1490,7 @@ impl MajikSignatureEmbed {
         })
     }
 
+    /// Return signer status information from the embedded envelope, optionally filtered by category.
     pub fn get_signatories(
         file: &[u8],
         options: Option<&ExtractOptions>,
@@ -1478,10 +1499,12 @@ impl MajikSignatureEmbed {
         Ok(Self::extract(file, options)?.and_then(|r| r.envelope.get_signatories(filter)))
     }
 
+    /// Return the display information for the allowlist-establishing issuer, when present.
     pub fn get_issuer(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<SignatoryInfo>> {
         Ok(Self::extract(file, options)?.and_then(|r| r.envelope.resolve_issuer()))
     }
 
+    /// Return structural envelope metadata without verifying the contained signatures.
     pub fn get_envelope_info(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<EnvelopeInfo>> {
         Ok(Self::extract(file, options)?.map(|r| r.envelope.get_envelope_info()))
     }
@@ -1492,10 +1515,12 @@ impl MajikSignatureEmbed {
         p.handler.strip(p.bytes)
     }
 
+    /// Check whether the file contains an extractable signature envelope.
     pub fn has_signature(file: &[u8], options: Option<&ExtractOptions>) -> R<bool> {
         Ok(Self::extract(file, options)?.is_some())
     }
 
+    /// Read allowlist metadata from the embedded envelope; this does not authorize signers or verify signatures.
     pub fn get_allowlist(file: &[u8], options: Option<&ExtractOptions>) -> R<Option<Vec<ExpectedSigner>>> {
         Ok(Self::extract(file, options)?.and_then(|r| r.envelope.allowlist().map(|a| a.to_vec())))
     }
@@ -1505,12 +1530,14 @@ impl MajikSignatureEmbed {
         default_registry()
     }
 
+    /// Return the names of format handlers registered by the built-in registry.
     pub fn list_handlers() -> Vec<String> {
         default_registry().list_handlers()
     }
 
     // ── CHAIN ANCHORS ────────────────────────────────────────────────────────
 
+    /// Evaluate whether the embedded envelope permits a chain anchor; does not submit a transaction.
     pub fn can_anchor(
         file: &[u8],
         options: Option<&ExtractOptions>,
@@ -1524,6 +1551,7 @@ impl MajikSignatureEmbed {
         })
     }
 
+    /// Attach metadata for an externally confirmed chain transaction; this method does not submit the transaction.
     pub fn register_chain_anchor(
         file: &[u8],
         anchor: MajikChainAnchor,
@@ -1542,6 +1570,7 @@ impl MajikSignatureEmbed {
         Ok(EmbedResult { blob: result, handler: p.handler.name().to_string(), mime_type: p.mime_type })
     }
 
+    /// Read stored chain-anchor metadata without querying the chain or confirming finality.
     pub fn get_chain_anchors(file: &[u8], options: Option<&ExtractOptions>) -> R<Vec<MajikChainAnchor>> {
         Ok(Self::extract(file, options)?.map(|r| r.envelope.chain_anchors().to_vec()).unwrap_or_default())
     }
