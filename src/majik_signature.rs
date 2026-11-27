@@ -32,7 +32,7 @@ use crate::core::payload::{
 };
 use crate::core::streaming::{
     hash_reader, BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress,
-    StreamingHashOptions, StreamingHashProgress,
+    StreamingBatchVerifyInput, StreamingHashOptions, StreamingHashProgress,
 };
 use crate::core::time::{now_iso, parse_iso_millis, resolve_now, to_iso_string};
 use crate::core::types::*;
@@ -1651,6 +1651,23 @@ impl MajikSignature {
                 MajikSignatureEmbed::verify_detached(file, envelope.into(), pk, options)
             }
         }
+    }
+
+    /// Stream path-backed files against a .mjksmap without materializing their bytes.
+    pub fn verify_files_from_mjksmap_stream(
+        map: &MajikSignatureMap,
+        files: &mut [StreamingBatchVerifyInput<'_>],
+        public_keys: &MajikSignerPublicKeys,
+        options: Option<&BatchVerifyOptions>,
+        streaming: BatchStreamingOptions<'_>,
+    ) -> R<Vec<FileVerifyResult>> {
+        MajikSignatureEmbed::verify_files_from_mjksmap_stream(
+            map,
+            files,
+            public_keys,
+            options,
+            streaming,
+        )
     }
 
     pub fn verify_files_from_mjksmap(
