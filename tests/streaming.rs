@@ -283,10 +283,8 @@ fn detached_batch_reader_signing_stops_on_cancellation_even_when_continue_is_ena
     }];
     let options = BatchSignOptions { continue_on_error: true, ..BatchSignOptions::default() };
     let cancellation = AtomicBool::new(true);
-    let streaming = BatchStreamingOptions {
-        cancellation: Some(&cancellation),
-        ..BatchStreamingOptions::default()
-    };
+    let streaming =
+        BatchStreamingOptions { cancellation: Some(&cancellation), ..BatchStreamingOptions::default() };
 
     let result = MajikSignature::sign_batch_detached_stream(&mut files, &key, Some(&options), streaming);
     assert!(result.is_err());
