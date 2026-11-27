@@ -229,6 +229,34 @@ fn encodes_manifest_and_nested_signature_binary_fields_as_cbor_byte_strings() {
     assert_eq!(restored.to_json(), map.to_json());
 }
 
+
+#[test]
+fn accepts_cbor_x_tag_64_for_manifest_binary_fields() {
+    let map = valid_map();
+    let bytes = map.to_mjksmap_bytes();
+    let mut decoded = decode_cbor(&bytes[MJKSMAP_HEADER_LEN..]).unwrap();
+    let Value::Map(root) = &mut decoded else { panic!("root must be a map") };
+    let entries = root
+        .iter_mut()
+        .find(|(key, _)| matches!(key, Value::Text(name) if name == "entries"))
+        .map(|(_, value)| value)
+        .unwrap();
+    let Value::Array(entries) = entries else { panic!("entries must be an array") };
+    let Value::Map(entry) = &mut entries[0] else { panic!("entry must be a map") };
+    let content_hash = entry
+        .iter_mut()
+        .find(|(key, _)| matches!(key, Value::Text(name) if name == "contentHash"))
+        .map(|(_, value)| value)
+        .unwrap();
+    let raw = std::mem::replace(content_hash, Value::Null);
+    *content_hash = Value::Tag(64, Box::new(raw));
+
+    let payload = encode_cbor(&decoded).unwrap();
+    let tagged = container(MJKSMAP_CBOR_VERSION, &payload, 0, None, &[]);
+    let restored = MajikSignatureMap::from_mjksmap(&tagged).unwrap();
+    assert_eq!(restored.to_json(), map.to_json());
+}
+
 #[test]
 fn rejects_cbor_with_multiple_top_level_items() {
     let valid = valid_map().to_mjksmap_bytes();
