@@ -1,4 +1,5 @@
 //! Bounded-memory processing for large content inputs.
+/// Supported streaming chunk defaults, bounds, and strategy configuration.
 pub mod config;
 /// Incremental, bounded-chunk SHA-256 hashing over reader inputs.
 pub mod sha256;
