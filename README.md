@@ -12,7 +12,7 @@
 
 Keys come from [`majik-key`](https://crates.io/crates/majik-key) (one BIP-39 mnemonic → Ed25519 + ML-DSA-87 + more).
 
-The crate mirrors the TypeScript source tree one-to-one (`index.ts` → `lib.rs`/`mod.rs`, `types.ts` → serde structs), uses `zeroize` where TS used `secureFill`, and produces/accepts the same wire formats — verified against the published TypeScript package in **both directions** (see [Interoperability](#interoperability)). New `.mjksmap` output uses container version 2 with CBOR-native byte strings for hashes, public keys, signatures, and nested envelope digests; the reader retains support for legacy version 1 JSON manifests.
+The crate follows the same protocol layers as the TypeScript implementation and shares its canonical signing and serialization contracts. Rust uses owned/borrowed Rust types, synchronous reader APIs, and `zeroize`-based secret handling; its module layout also includes Rust-specific helpers such as locale collation and ZIP writing. Cross-language compatibility is covered by committed fixtures and vector tests (see [Interoperability](#interoperability)). New `.mjksmap` output uses container version 2 with CBOR-native byte strings for hashes, public keys, signatures, and nested envelope digests; the reader retains support for legacy version 1 JSON manifests.
 
 ## Quick start
 
@@ -205,7 +205,7 @@ mjksig sign ./docs -k key.json --map --bundle
 mjksig verify ./docs --map ./docs/signatures.mjksmap
 ```
 
-Same commands and flags as the TypeScript CLI — see [CLI_README.md](CLI_README.md).
+The common workflows are intentionally similar to the TypeScript CLI, but the exact Rust commands, options, and feature-gated behavior are documented in [CLI_README.md](CLI_README.md).
 
 ## Layout (mirrors the TS tree)
 
@@ -284,7 +284,7 @@ input file requires a format handler to derive its canonical content.
 ### Resource and untrusted-input limits
 
 - Hash workers accept chunk sizes from **64 KiB to 64 MiB** (1 MiB by default). Reader-based hashing has no implicit file-size ceiling; set `max_bytes` to impose one.
-- MJKSMAP v2 CBOR payloads are capped at **16 MiB**; the JSON compatibility API allows up to **24 MiB** for Base64 expansion, while legacy v1 JSON containers retain the **16 MiB** wire limit. The manifest is capped at **10,000 entries**, and normalized paths at **4,096 UTF-16 code units**. Traversal segments, control/bidirectional override characters, normalized-path collisions, malformed JSON/CBOR, trailing data, and nonzero reserved header values are rejected.
+- MJKSMAP v2 CBOR payloads are capped at **16 MiB**; the JSON compatibility API allows up to **24 MiB** for Base64 expansion, while legacy v1 JSON containers retain the **16 MiB** wire limit. The manifest is capped at **10,000 entries**, and input path strings at **4,096 UTF-16 code units before normalization**. Traversal segments, control/bidirectional override characters, normalized-path collisions, malformed JSON/CBOR, trailing data, and nonzero reserved header values are rejected.
 - The public JSON model uses canonical Base64 SHA-256 content hashes; MJKSMAP v2 stores those digests and nested envelope binary fields as raw CBOR byte strings. Optional sizes are non-negative integers, MIME metadata is bounded and rejects control characters, and embedded envelopes are validated.
 - Envelope JSON/CBOR and MJKSIG inputs retain the **16 MiB** parser ceiling. Envelope builders run the same schema and aggregate-size validation as parsers.
 
@@ -307,7 +307,7 @@ MAJIK_STRESS_BYTES=10737418240 cargo test --release --test streaming streams_a_v
 
 ## Interoperability
 
-Checked against `@majikah/majik-signature@0.10.0` (see `tests/ts_interop.rs`, `tests/fixtures/`):
+The committed TypeScript interoperability fixture set was generated from `@majikah/majik-signature@0.10.0` (see `tests/ts_interop.rs` and `tests/fixtures/`). These are historical, pinned wire-format vectors; CI does not install or execute the current npm package during each Rust test run. Rust-generated vectors are also emitted by integration tests for the TypeScript test suite to consume:
 
 | Direction               | Verified                                                                                                                                                                           |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
