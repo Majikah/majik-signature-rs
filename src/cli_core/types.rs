@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Select embedded versus detached output for CLI signing commands.
 pub enum SignMode {
     Embedded,
     Detached,
@@ -12,6 +13,7 @@ pub enum SignMode {
 }
 
 #[derive(Debug, Clone)]
+/// Parsed options controlling the CLI sign workflow.
 pub struct SignCliOptions {
     pub input: String,
     pub key_path: String,
@@ -31,6 +33,7 @@ pub struct SignCliOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Parsed options controlling the CLI verify workflow.
 pub struct VerifyCliOptions {
     pub input: String,
     pub key_path: Option<String>,
@@ -42,6 +45,7 @@ pub struct VerifyCliOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Parsed options controlling the CLI seal workflow.
 pub struct SealCliOptions {
     pub input: String,
     pub key_path: String,
@@ -52,6 +56,7 @@ pub struct SealCliOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Parsed options for the non-mutating signing-policy preflight command.
 pub struct CanSignCliOptions {
     pub input: String,
     pub key_path: String,
@@ -59,6 +64,7 @@ pub struct CanSignCliOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Parsed options for non-verifying envelope inspection.
 pub struct InspectCliOptions {
     pub input: String,
     pub json: bool,
@@ -66,6 +72,7 @@ pub struct InspectCliOptions {
 
 /// Uniform command result: `{ ok, command, message, ...data }`.
 #[derive(Debug, Clone, Serialize)]
+/// Structured outcome returned by a CLI operation before output rendering.
 pub struct CliResult {
     pub ok: bool,
     pub command: String,
@@ -75,6 +82,7 @@ pub struct CliResult {
 }
 
 #[derive(Debug, Clone)]
+/// File discovered during recursive folder selection for a CLI batch.
 pub struct FolderFile {
     pub absolute_path: std::path::PathBuf,
     pub relative_path: String,
