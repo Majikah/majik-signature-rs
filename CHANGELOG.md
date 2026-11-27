@@ -8,6 +8,7 @@
 - Add `MajikSignature::sign_batch_detached_stream()` with sequential reader consumption, bounded chunking, per-file progress, cancellation, and per-file failure collection.
 - Preserve existing `.mjksmap` / `.mjksig` batch result formats for streaming inputs.
 - Add `MajikSignature::verify_files_from_mjksmap_stream()` with single-pass digest verification, path-first tamper detection, and content-hash relocation.
+- Cover both MJKSMAP and separate MJKSIG output modes in streaming batch signing tests.
 
 ## 1.5.1 - 2026-11-27
 - Raise the configurable reader-hashing chunk ceiling to 128 MiB.
