@@ -311,10 +311,7 @@ fn detached_batch_reader_signing_emits_separate_mjksig_outputs() {
             mime_type: None,
         },
     ];
-    let options = BatchSignOptions {
-        mode: Some(BatchSignMode::Separate),
-        ..BatchSignOptions::default()
-    };
+    let options = BatchSignOptions { mode: Some(BatchSignMode::Separate), ..BatchSignOptions::default() };
     let result = MajikSignature::sign_batch_detached_stream(
         &mut files,
         &key,
