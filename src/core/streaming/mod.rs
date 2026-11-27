@@ -8,6 +8,6 @@ pub use config::*;
 pub use sha256::{hash_bytes_auto, hash_reader};
 pub use strategy::HashStrategy;
 pub use types::{
-    BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress, StreamingHashOptions,
+    BatchStreamingOptions, StreamingBatchFileInput, StreamingBatchProgress, StreamingBatchVerifyInput, StreamingHashOptions,
     StreamingHashProgress, StreamingHashResult,
 };
