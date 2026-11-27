@@ -15,7 +15,7 @@
 //! `STEP = 24` the layer tolerates pixel rounding and JPEG recompression well beyond Q70.
 //! Consequently DCT layers are **not** wire-compatible with the (non-functional) TS ones.
 //!
-//! JS `Math.round` rounds half *up*; [`js_round`] reproduces that for the pixel conversions.
+//! JS `Math.round` rounds half *up*; `js_round` reproduces that for the pixel conversions.
 
 use std::sync::OnceLock;
 
