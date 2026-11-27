@@ -5,6 +5,8 @@
 - Match TypeScript and Rust streaming chunk-size limits at 64 KiB–256 MiB, retaining a 1 MiB default and 8 MiB automatic threshold.
 - Enforce declared total stream lengths, rejecting both truncated and overlong readers before accepting a digest.
 - Add regression coverage for expected-length validation and cross-path hash equivalence.
+- Add `MajikSignature::sign_batch_detached_stream()` with sequential reader consumption, bounded chunking, per-file progress, cancellation, and per-file failure collection.
+- Preserve existing `.mjksmap` / `.mjksig` batch result formats for streaming inputs.
 
 ## 1.5.1 - 2026-11-27
 - Raise the configurable reader-hashing chunk ceiling to 128 MiB.
