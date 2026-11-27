@@ -109,6 +109,12 @@ pub const MAX_TSA_FIELD_CHARS: usize = 256;
 pub const MAX_SIGNATURES_PER_ENVELOPE: usize = 1024;
 pub const MAX_ALLOWLIST_ENTRIES: usize = 1024;
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum serialized MJKSMAP manifest payload (header excluded).
+pub const MAX_MJKSMAP_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum entries accepted in one MJKSMAP manifest.
+pub const MAX_MJKSMAP_ENTRIES: usize = 10_000;
+/// Maximum normalized logical path length in UTF-16 code units.
+pub const MAX_MJKSMAP_PATH_CHARS: usize = 4_096;
 pub const MAX_CBOR_INPUT_BYTES: usize = MAX_ENVELOPE_BYTES;
 pub const MAX_CHAIN_ANCHORS: usize = 256;
 pub const MAX_FILE_VERSIONS: usize = 10_000;
