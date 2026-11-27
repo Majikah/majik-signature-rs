@@ -1,4 +1,8 @@
 //! Adversarial MJKSMAP and bounded-memory manifest regressions.
+mod common;
+
+use ciborium::value::Value;
+use common::new_key;
 use majik_signature::*;
 
 fn empty_envelope() -> MultiSigEnvelope {
@@ -145,6 +149,83 @@ fn writes_cbor_v2_and_reads_legacy_json_v1() {
         &[],
     );
     let restored = MajikSignatureMap::from_mjksmap(&legacy).unwrap();
+    assert_eq!(restored.to_json(), map.to_json());
+}
+
+
+#[test]
+fn encodes_manifest_and_nested_signature_binary_fields_as_cbor_byte_strings() {
+    let key = new_key("mjksmap-cbor-native");
+    let signature = MajikSignature::sign(b"compact MJKSMAP manifest", &key, None).unwrap();
+    let signature_json = signature.to_json();
+
+    let mut envelope = empty_envelope();
+    envelope.signatures.push(signature_json.clone());
+    let map = MajikSignatureMap::empty()
+        .with_entry(MjksMapEntry {
+            path: "docs/report.txt".into(),
+            content_hash: signature_json.content_hash.clone(),
+            size: Some(25),
+            mime_type: Some("text/plain".into()),
+            envelope,
+        })
+        .unwrap();
+
+    let bytes = map.to_mjksmap_bytes();
+    assert_eq!(bytes[MJKSMAP_MAGIC_LEN], MJKSMAP_CBOR_VERSION);
+    let payload = &bytes[MJKSMAP_HEADER_LEN..];
+    assert!(payload.len() < serde_json::to_vec(&map.to_json()).unwrap().len());
+
+    let decoded = decode_cbor(payload).unwrap();
+    let Value::Map(root) = decoded else { panic!("MJKSMAP root must be a CBOR map") };
+    let root_get = |key: &str| {
+        root.iter()
+            .find(|(k, _)| matches!(k, Value::Text(name) if name == key))
+            .map(|(_, value)| value)
+            .unwrap()
+    };
+    let Value::Array(entries) = root_get("entries") else { panic!("entries must be an array") };
+    let Value::Map(entry) = &entries[0] else { panic!("entry must be a map") };
+    let entry_get = |key: &str| {
+        entry
+            .iter()
+            .find(|(k, _)| matches!(k, Value::Text(name) if name == key))
+            .map(|(_, value)| value)
+            .unwrap()
+    };
+    assert!(matches!(entry_get("contentHash"), Value::Bytes(bytes) if bytes.len() == 32));
+
+    let Value::Map(envelope) = entry_get("envelope") else { panic!("envelope must be a CBOR map") };
+    let signatures = envelope
+        .iter()
+        .find(|(k, _)| matches!(k, Value::Text(name) if name == "signatures"))
+        .map(|(_, value)| value)
+        .unwrap();
+    let Value::Array(signatures) = signatures else { panic!("signatures must be an array") };
+    let Value::Map(signature) = &signatures[0] else { panic!("signature must be a map") };
+    let signature_get = |key: &str| {
+        signature
+            .iter()
+            .find(|(k, _)| matches!(k, Value::Text(name) if name == key))
+            .map(|(_, value)| value)
+            .unwrap()
+    };
+
+    for (field, length) in [
+        ("signerId", 32),
+        ("signerEdPublicKey", 32),
+        ("signerMlDsaPublicKey", 2592),
+        ("contentHash", 32),
+        ("edSignature", 64),
+        ("mlDsaSignature", 4627),
+    ] {
+        assert!(
+            matches!(signature_get(field), Value::Bytes(bytes) if bytes.len() == length),
+            "{field} must be a {length}-byte CBOR byte string"
+        );
+    }
+
+    let restored = MajikSignatureMap::from_mjksmap(&bytes).unwrap();
     assert_eq!(restored.to_json(), map.to_json());
 }
 
