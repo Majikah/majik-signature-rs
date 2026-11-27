@@ -9,6 +9,7 @@
 //!
 //! This is a serialization format only; the signed canonical payload is unchanged.
 
+/// Generic CBOR value encoding/decoding with strict trailing-data checks.
 pub mod codec;
 /// JSON-model to CBOR-native wire adapters for signatures, envelopes, and anchors.
 pub mod wire;
