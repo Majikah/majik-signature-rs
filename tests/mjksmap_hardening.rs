@@ -41,13 +41,7 @@ fn map_json(entries: Vec<serde_json::Value>) -> serde_json::Value {
     })
 }
 
-fn container(
-    version: u8,
-    payload: &[u8],
-    reserved: u8,
-    declared: Option<u32>,
-    suffix: &[u8],
-) -> Vec<u8> {
+fn container(version: u8, payload: &[u8], reserved: u8, declared: Option<u32>, suffix: &[u8]) -> Vec<u8> {
     let mut bytes = MJKSMAP_MAGIC.to_vec();
     bytes.push(version);
     bytes.push(reserved);
@@ -132,7 +126,6 @@ fn rejects_manifest_entry_count_before_building_indices() {
         .contains("exceeds the limit"));
 }
 
-
 #[test]
 fn writes_cbor_v2_and_reads_legacy_json_v1() {
     let map = valid_map();
@@ -141,13 +134,7 @@ fn writes_cbor_v2_and_reads_legacy_json_v1() {
 
     let legacy_json = serde_json::to_vec(&map.to_json()).unwrap();
     assert!(bytes.len() < MJKSMAP_HEADER_LEN + legacy_json.len());
-    let legacy = container(
-        MJKSMAP_JSON_VERSION,
-        &legacy_json,
-        0,
-        None,
-        &[],
-    );
+    let legacy = container(MJKSMAP_JSON_VERSION, &legacy_json, 0, None, &[]);
     let restored = MajikSignatureMap::from_mjksmap(&legacy).unwrap();
     assert_eq!(restored.to_json(), map.to_json());
 }
@@ -264,13 +251,7 @@ fn rejects_cbor_with_multiple_top_level_items() {
     let payload = &valid[MJKSMAP_HEADER_LEN..];
     let mut appended = payload.to_vec();
     appended.push(0xf6); // CBOR null as an extra top-level data item
-    let invalid = container(
-        MJKSMAP_CBOR_VERSION,
-        &appended,
-        0,
-        None,
-        &[],
-    );
+    let invalid = container(MJKSMAP_CBOR_VERSION, &appended, 0, None, &[]);
     assert!(MajikSignatureMap::from_mjksmap(&invalid)
         .unwrap_err()
         .to_string()
@@ -292,10 +273,16 @@ fn enforces_binary_header_length_utf8_and_payload_limits() {
         .unwrap_err()
         .to_string()
         .contains("trailing bytes"));
-    assert!(MajikSignatureMap::from_mjksmap(&container(MJKSMAP_CBOR_VERSION, payload, 0, Some(payload.len() as u32 + 1), &[]))
-        .unwrap_err()
-        .to_string()
-        .contains("exceeds buffer"));
+    assert!(MajikSignatureMap::from_mjksmap(&container(
+        MJKSMAP_CBOR_VERSION,
+        payload,
+        0,
+        Some(payload.len() as u32 + 1),
+        &[]
+    ))
+    .unwrap_err()
+    .to_string()
+    .contains("exceeds buffer"));
     assert!(MajikSignatureMap::from_mjksmap(&container(MJKSMAP_JSON_VERSION, &[0xff], 0, None, &[]))
         .unwrap_err()
         .to_string()
