@@ -8,6 +8,7 @@ use crate::core::types::FormatHandler;
 const MAGIC: &[u8] = b"\n%%MajikSig%%\n";
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in PDF documents.
 pub struct PdfHandler;
 
 impl PdfHandler {
