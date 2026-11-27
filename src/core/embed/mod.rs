@@ -1,5 +1,6 @@
 //! Port of `core/embed/`.
 
+/// Canonical file-byte preparation and format-aware stripping helpers.
 pub mod canonical;
 /// Shared identifiers and names used by embedded file-format handlers.
 pub mod constants;
