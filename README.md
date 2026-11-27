@@ -233,7 +233,7 @@ Large-content signing and verification are available through reader-based APIs:
 MajikSignature::sign_reader and MajikSignature::verify_reader. Use the
 *_with_options variants to configure the bounded read buffer, an optional byte
 ceiling, progress callbacks, and cancellation. The default chunk size is 1 MiB,
-with a configurable range of 64 KiB–128 MiB. Chunk boundaries are not included
+with a configurable range of 64 KiB–64 MiB. Chunk boundaries are not included
 in the digest: streaming uses one continuous SHA-256 state and produces the same
 32-byte content hash as the existing in-memory APIs.
 
@@ -251,6 +251,49 @@ let signature = MajikSignature::sign_reader(&mut input, &key, None)?;
 
 MajikSignature::verify_reader accepts a reader and detached signature record.
 Existing byte-slice APIs and signature wire formats remain unchanged.
+
+### Streaming detached batch signing
+
+Use `MajikSignature::sign_batch_detached_stream()` with one `Read` source per
+input. `StreamingBatchFileInput` carries the unique relative path, reader,
+optional declared byte length, and MIME type. Files are consumed sequentially
+with one bounded read buffer, and the result uses the existing `BatchSignResult`
+map or separate-signature shape. `BatchStreamingOptions` supplies the chunk
+size, per-file byte limit, cancellation flag, and batch-aware progress callback.
+Set `BatchSignOptions.continue_on_error` to collect per-file failures and
+continue with remaining readers.
+
+The reader must expose the exact canonical unsigned bytes to sign. The low-level
+streaming batch API does not parse or strip existing embedded signature metadata.
+
+### Streaming MJKSMAP verification
+
+Use `MajikSignature::verify_files_from_mjksmap_stream()` with
+`StreamingBatchVerifyInput` readers to verify a manifest without materializing
+file contents. Each reader is hashed once. The resolver preserves the buffered
+API semantics: an exact-path digest mismatch is `Tampered`; when the path is
+absent, a digest match can resolve the file as `Relocated`. Selected envelope
+signatures are checked against the streamed digest and the supplied trusted
+public keys. `BatchStreamingOptions` controls the bounded read buffer,
+per-file byte limit, cancellation, and per-file progress.
+
+The streaming verifier also consumes exact canonical unsigned bytes. It does
+not apply format-aware stripping; use the client path-streaming APIs when the
+input file requires a format handler to derive its canonical content.
+
+### Resource and untrusted-input limits
+
+- Hash workers accept chunk sizes from **64 KiB to 64 MiB** (1 MiB by default). Reader-based hashing has no implicit file-size ceiling; set `max_bytes` to impose one.
+- MJKSMAP parsing and serialization cap the JSON payload at **16 MiB**, the manifest at **10,000 entries**, and normalized paths at **4,096 UTF-16 code units**. Traversal segments, control/bidirectional override characters, normalized-path collisions, malformed UTF-8, trailing bytes, and nonzero reserved header values are rejected.
+- MJKSMAP content hashes must be canonical Base64 SHA-256 digests. Optional sizes must be non-negative integers, MIME metadata is bounded and rejects control characters, and embedded envelopes are validated.
+- Envelope JSON/CBOR and MJKSIG inputs retain the **16 MiB** parser ceiling. Envelope builders run the same schema and aggregate-size validation as parsers.
+
+The normal streaming regression suite hashes a virtual **32 MiB** reader source using multiple chunk sizes without allocating a 32 MiB source buffer. A 10 GiB virtual-reader stress test is available but intentionally ignored by default:
+
+```bash
+cargo test --test streaming
+MAJIK_STRESS_BYTES=10737418240 cargo test --release --test streaming streams_a_virtual_ten_gib_file_with_bounded_memory -- --ignored
+```
 
 ## Rust API notes
 

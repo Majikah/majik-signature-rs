@@ -22,7 +22,7 @@ fn cancelled(options: &StreamingHashOptions<'_>) -> bool {
 ///
 /// The reader is consumed from its current position to EOF. No per-chunk
 /// prefix, delimiter, or intermediate digest is added to the message.
-pub fn hash_reader<Rd: Read>(
+pub fn hash_reader<Rd: Read + ?Sized>(
     reader: &mut Rd,
     options: &mut StreamingHashOptions<'_>,
 ) -> R<StreamingHashResult> {
@@ -91,6 +91,14 @@ pub fn hash_reader<Rd: Read>(
                 ));
             }
         }
+        if let Some(expected) = options.total_bytes {
+            if next > expected {
+                return Err(MajikSignatureError::validation(
+                    format!("Stream length mismatch: expected {expected} bytes, read at least {next}"),
+                    Some("total_bytes"),
+                ));
+            }
+        }
 
         hasher.update(&buffer[..count]);
         bytes_processed = next;
@@ -133,6 +141,14 @@ pub fn hash_bytes_auto(bytes: &[u8], options: &mut StreamingHashOptions<'_>) -> 
     let size = u64::try_from(bytes.len()).map_err(|_| {
         MajikSignatureError::validation("Input size exceeds the supported range", Some("source"))
     })?;
+    if let Some(expected) = options.total_bytes {
+        if size != expected {
+            return Err(MajikSignatureError::validation(
+                format!("Stream length mismatch: expected {expected} bytes, read {size}"),
+                Some("total_bytes"),
+            ));
+        }
+    }
     if let Some(max_bytes) = options.max_bytes {
         if size > max_bytes {
             return Err(MajikSignatureError::validation(

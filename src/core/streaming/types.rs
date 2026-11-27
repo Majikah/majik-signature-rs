@@ -40,6 +40,50 @@ impl<'a> Default for StreamingHashOptions<'a> {
     }
 }
 
+/// One input in a streaming detached batch-signing operation.
+pub struct StreamingBatchFileInput<'a> {
+    pub path: String,
+    pub reader: &'a mut dyn std::io::Read,
+    pub total_bytes: Option<u64>,
+    pub mime_type: Option<String>,
+}
+
+/// One file supplied to streaming MJKSMAP verification.
+pub struct StreamingBatchVerifyInput<'a> {
+    pub path: String,
+    pub reader: &'a mut dyn std::io::Read,
+    pub total_bytes: Option<u64>,
+}
+
+/// Progress associated with one file in a streaming batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamingBatchProgress {
+    pub file_index: usize,
+    pub total_files: usize,
+    pub path: String,
+    pub bytes_processed: u64,
+    pub total_bytes: Option<u64>,
+}
+
+/// Resource and progress settings shared by a streaming batch-signing operation.
+pub struct BatchStreamingOptions<'a> {
+    pub chunk_size: usize,
+    pub max_bytes_per_file: Option<u64>,
+    pub cancellation: Option<&'a AtomicBool>,
+    pub on_progress: Option<&'a mut dyn FnMut(StreamingBatchProgress)>,
+}
+
+impl Default for BatchStreamingOptions<'_> {
+    fn default() -> Self {
+        Self {
+            chunk_size: super::config::DEFAULT_HASH_CHUNK_SIZE,
+            max_bytes_per_file: None,
+            cancellation: None,
+            on_progress: None,
+        }
+    }
+}
+
 /// Result of hashing one complete logical byte sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamingHashResult {

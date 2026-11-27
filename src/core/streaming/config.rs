@@ -2,7 +2,8 @@
 
 pub const DEFAULT_HASH_CHUNK_SIZE: usize = 1024 * 1024;
 pub const MIN_HASH_CHUNK_SIZE: usize = 64 * 1024;
-pub const MAX_HASH_CHUNK_SIZE: usize = 256 * 1024 * 1024;
+/// Hard cap per hashing worker to prevent caller-selected excessive buffering.
+pub const MAX_HASH_CHUNK_SIZE: usize = 64 * 1024 * 1024;
 pub const DEFAULT_HASH_STREAMING_THRESHOLD: u64 = 8 * 1024 * 1024;
 
 pub fn validate_chunk_size(chunk_size: usize) -> bool {

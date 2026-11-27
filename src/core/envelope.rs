@@ -7,8 +7,10 @@
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use majik_key::MajikKey;
+use serde::Serialize;
 use serde_json::Value;
 use sha3::{Digest, Sha3_512};
+use std::io::{self, Write};
 
 use crate::anchor::types::MajikChainAnchor;
 use crate::core::cbor::{decode_cbor, encode_cbor, envelope_from_cbor, envelope_to_cbor};
@@ -22,6 +24,47 @@ use crate::core::validator::MajikSignatureValidator;
 use crate::majik_signature::signing_public_keys_b64;
 
 type R<T> = MajikSignatureResult<T>;
+
+/// Counts JSON-serialized bytes without retaining another copy of an envelope.
+struct JsonSizeLimiter {
+    written: usize,
+    limit: usize,
+}
+
+impl JsonSizeLimiter {
+    fn new(limit: usize) -> Self {
+        Self { written: 0, limit }
+    }
+}
+
+impl Write for JsonSizeLimiter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let next = self
+            .written
+            .checked_add(buffer.len())
+            .ok_or_else(|| io::Error::other("serialized JSON length overflow"))?;
+        if next > self.limit {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "serialized JSON exceeds limit"));
+        }
+        self.written = next;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn validate_envelope_serialized_size<T: Serialize>(value: &T) -> R<()> {
+    let mut limiter = JsonSizeLimiter::new(MAX_ENVELOPE_BYTES);
+    serde_json::to_writer(&mut limiter, value).map_err(|error| {
+        MajikSignatureError::serialization_with_cause(
+            format!("Envelope payload exceeds the maximum supported size of {MAX_ENVELOPE_BYTES} bytes or is not serializable"),
+            error,
+        )
+    })?;
+    Ok(())
+}
 
 /// Result of [`MajikSignatureEnvelope::check_allowlist`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +143,20 @@ impl MajikSignatureEnvelope {
         Self { data }
     }
 
+    /// Validate a builder-produced value before allowing it into an envelope.
+    /// This shares the exact schema and aggregate byte ceilings used by parsers.
+    fn try_new(data: MultiSigEnvelope) -> R<MajikSignatureEnvelope> {
+        validate_envelope_serialized_size(&data)?;
+        let value = serde_json::to_value(&data).map_err(|error| {
+            MajikSignatureError::serialization_with_cause(
+                "Failed to serialize envelope builder result",
+                error,
+            )
+        })?;
+        validate_shape(&value)?;
+        Ok(Self::new(data))
+    }
+
     // ── Getters ──────────────────────────────────────────────────────────────
 
     pub fn version(&self) -> u8 {
@@ -171,7 +228,7 @@ impl MajikSignatureEnvelope {
         let mut versions = chain.to_vec();
         versions.push(entry);
         next.file_versions = Some(versions);
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Structural linkage check of `fileVersions` — touches no signature.
@@ -350,7 +407,7 @@ impl MajikSignatureEnvelope {
             Some(i) => next.signatures[i] = sig,
             None => next.signatures.push(sig),
         }
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Establish the allowlist. Only the first signer may do so, and only once.
@@ -371,10 +428,21 @@ impl MajikSignatureEnvelope {
                 Some("allowlist"),
             ));
         }
+        if allowlist.len() > MAX_ALLOWLIST_ENTRIES {
+            return Err(MajikSignatureError::validation(
+                format!("Allowlist exceeds the limit of {MAX_ALLOWLIST_ENTRIES}"),
+                Some("allowlist"),
+            ));
+        }
+        for (index, entry) in allowlist.iter().enumerate() {
+            MajikSignatureValidator::validate_expected_signer(entry, Some(index))?;
+        }
+        MajikSignatureValidator::validate_sha256_digest(signer_id, "allowlistSignerId")?;
+
         let mut next = self.data.clone();
         next.allowlist = Some(allowlist.to_vec());
         next.allowlist_signer_id = Some(signer_id.to_string());
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Seal the envelope (SHA3-512 over the signatory set + timestamp). Issuer-only when an
@@ -390,13 +458,25 @@ impl MajikSignatureEnvelope {
                 sealed_by
             )));
         }
+        if sealed_by.trim().is_empty()
+            || sealed_by.encode_utf16().count() > MAX_SIGNER_ID_CHARS
+            || sealed_by.chars().any(|ch| (ch as u32) <= 0x1f || ch == '\u{7f}')
+        {
+            return Err(MajikSignatureError::validation(
+                format!("sealedBy must be a non-empty string of at most {MAX_SIGNER_ID_CHARS} characters without control characters"),
+                Some("sealedBy"),
+            ));
+        }
+        if let Some(timestamp) = seal_timestamp {
+            MajikSignatureValidator::validate_timestamp_for_signing(timestamp)?;
+        }
         let ts = seal_timestamp.map(str::to_string).unwrap_or_else(now_iso);
         let seal_hash = self.compute_seal_hash(&ts);
         let mut next = self.data.clone();
         next.seal_hash = Some(seal_hash);
         next.seal_timestamp = Some(ts);
         next.sealed_by = Some(sealed_by.to_string());
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     /// Register a confirmed chain anchor (replaces one with the same `id`).
@@ -418,7 +498,7 @@ impl MajikSignatureEnvelope {
         }
         let mut next = self.data.clone();
         next.chain_anchors = Some(anchors);
-        Ok(Self::new(next))
+        Self::try_new(next)
     }
 
     // ── Seal ─────────────────────────────────────────────────────────────────
@@ -623,6 +703,12 @@ impl MajikSignatureEnvelope {
     }
 
     pub fn deserialize(base64: &str) -> R<MajikSignatureEnvelope> {
+        let max_encoded_len = MAX_ENVELOPE_BYTES.div_ceil(3) * 4;
+        if base64.trim().len() > max_encoded_len {
+            return Err(MajikSignatureError::serialization(format!(
+                "Base64 envelope exceeds the maximum supported encoded size of {max_encoded_len} characters"
+            )));
+        }
         let bytes = B64.decode(base64.trim()).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Failed to deserialize envelope from base64", e)
         })?;
@@ -788,6 +874,7 @@ impl MajikSignatureEnvelope {
     }
 
     pub fn from_json_value(parsed: Value) -> R<MajikSignatureEnvelope> {
+        validate_envelope_serialized_size(&parsed)?;
         let Value::Object(obj) = &parsed else {
             return Err(MajikSignatureError::serialization(
                 "Embedded signature payload must be a JSON object",
@@ -802,6 +889,7 @@ impl MajikSignatureEnvelope {
                 "Unrecognised signature envelope format — expected MajikSignatureEnvelopeJSON or MajikSignatureJSON",
             ));
         };
+        validate_envelope_serialized_size(&promoted)?;
         validate_shape(&promoted)?;
         let data: MultiSigEnvelope = serde_json::from_value(promoted).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Embedded signature payload is malformed", e)
@@ -811,6 +899,7 @@ impl MajikSignatureEnvelope {
 
     /// Validate-and-wrap a typed envelope JSON.
     pub fn from_json(json: &MajikSignatureEnvelopeJSON) -> R<MajikSignatureEnvelope> {
+        validate_envelope_serialized_size(json)?;
         let v = serde_json::to_value(json)
             .map_err(|e| MajikSignatureError::serialization_with_cause("Failed to serialize envelope", e))?;
         Self::from_json_value(v)
