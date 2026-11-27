@@ -153,6 +153,92 @@ fn streaming_hash_reports_progress() {
 }
 
 #[test]
+fn detached_batch_reader_signing_matches_buffered_signatures() {
+    let key = new_key("streaming-batch-alice");
+    let first = b"first streaming batch file".to_vec();
+    let second = b"second streaming batch file".to_vec();
+    let mut first_reader = io::Cursor::new(first.clone());
+    let mut second_reader = io::Cursor::new(second.clone());
+    let mut files = vec![
+        StreamingBatchFileInput {
+            path: "docs/first.txt".into(),
+            reader: &mut first_reader,
+            total_bytes: Some(first.len() as u64),
+            mime_type: Some("text/plain".into()),
+        },
+        StreamingBatchFileInput {
+            path: "docs/second.txt".into(),
+            reader: &mut second_reader,
+            total_bytes: Some(second.len() as u64),
+            mime_type: Some("text/plain".into()),
+        },
+    ];
+
+    let result = MajikSignature::sign_batch_detached_stream(
+        &mut files,
+        &key,
+        None,
+        BatchStreamingOptions::default(),
+    ).unwrap();
+
+    let BatchSignResult::Map { map, map_blob, failures } = result else {
+        panic!("expected MJKSMAP result");
+    };
+    assert!(failures.is_empty());
+    assert_eq!(map.size(), 2);
+    assert!(!map_blob.is_empty());
+
+    let first_entry = map.get_entry("docs/first.txt").unwrap();
+    assert_eq!(first_entry.content_hash, bytes_to_base64(&hash_content(&first)));
+    assert_eq!(first_entry.size, Some(first.len() as u64));
+    let public_keys = MajikSignature::public_keys_from_majik_key(&key).unwrap();
+    let first_signature = &first_entry.envelope.signatures[0];
+    let verified = MajikSignature::verify(&first, first_signature, &public_keys, None).unwrap();
+    assert!(verified.valid, "{:?}", verified.reason);
+}
+
+#[test]
+fn detached_batch_reader_signing_can_continue_after_a_file_failure() {
+    let key = new_key("streaming-batch-continue");
+    let valid = b"valid file".to_vec();
+    let invalid = b"declared length is too long".to_vec();
+    let mut valid_reader = io::Cursor::new(valid.clone());
+    let mut invalid_reader = io::Cursor::new(invalid.clone());
+    let mut files = vec![
+        StreamingBatchFileInput {
+            path: "valid.txt".into(),
+            reader: &mut valid_reader,
+            total_bytes: Some(valid.len() as u64),
+            mime_type: None,
+        },
+        StreamingBatchFileInput {
+            path: "invalid.txt".into(),
+            reader: &mut invalid_reader,
+            total_bytes: Some((invalid.len() + 1) as u64),
+            mime_type: None,
+        },
+    ];
+    let options = BatchSignOptions {
+        continue_on_error: true,
+        ..BatchSignOptions::default()
+    };
+
+    let result = MajikSignature::sign_batch_detached_stream(
+        &mut files,
+        &key,
+        Some(&options),
+        BatchStreamingOptions::default(),
+    ).unwrap();
+
+    let BatchSignResult::Map { map, failures, .. } = result else {
+        panic!("expected MJKSMAP result");
+    };
+    assert_eq!(map.size(), 1);
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].path, "invalid.txt");
+}
+
+#[test]
 fn ed25519_scalar_malleability_is_rejected() {
     let key = new_key("malleability-alice");
     let content = b"malleability regression fixture";
