@@ -1,7 +1,7 @@
-//! Port of `core/cbor/cbor.ts` — standard CBOR bytes ⇄ [`Value`].
+//! Port of `core/cbor/cbor.ts` — standard CBOR bytes ⇄ [`ciborium::value::Value`].
 //!
 //! Ordinary CBOR maps / byte strings only (no record extensions). Application-level
-//! validation belongs to [`super::wire`].
+//! validation belongs to [`crate::core::cbor::wire`].
 
 use ciborium::value::Value;
 
