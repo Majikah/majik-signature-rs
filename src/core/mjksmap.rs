@@ -451,7 +451,10 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
             None => None,
             Some(value) => {
                 let size = value.as_u64().ok_or_else(|| {
-                    verr(format!("entries[{i}].size must be a non-negative safe integer when present"), "size")
+                    verr(
+                        format!("entries[{i}].size must be a non-negative safe integer when present"),
+                        "size",
+                    )
                 })?;
                 if size > MAX_SAFE_FILE_SIZE {
                     return Err(verr(
@@ -460,7 +463,7 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
                     ));
                 }
                 Some(size)
-            },
+            }
         };
         let mime_type = match e.get("mimeType") {
             None => None,
