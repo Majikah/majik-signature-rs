@@ -9,6 +9,7 @@ const APP15_MARKER: [u8; 2] = [0xff, 0xef];
 const MAJIK_IDENTIFIER: &[u8] = b"MAJIK\0";
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in JPEG application segments.
 pub struct JpegHandler;
 
 impl JpegHandler {
