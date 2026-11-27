@@ -137,6 +137,22 @@ fn cbor_required_text<'a>(
     }
 }
 
+fn cbor_byte_string(value: Option<&CborValue>, field: &str) -> R<Vec<u8>> {
+    match value {
+        Some(CborValue::Bytes(bytes)) => Ok(bytes.clone()),
+        // cbor-x represents Uint8Array values using RFC 8746 tag 64 by default.
+        Some(CborValue::Tag(64, inner)) => match inner.as_ref() {
+            CborValue::Bytes(bytes) => Ok(bytes.clone()),
+            _ => Err(MajikSignatureError::serialization(format!(
+                "{field} must contain a CBOR byte string"
+            ))),
+        },
+        _ => Err(MajikSignatureError::serialization(format!(
+            "{field} must be a CBOR byte string"
+        ))),
+    }
+}
+
 fn cbor_required_u64(
     entries: &[(CborValue, CborValue)],
     key: &str,
@@ -248,22 +264,17 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
         )?
         .to_string();
 
-        let content_hash = match cbor_map_get(fields, "contentHash") {
-            Some(CborValue::Bytes(bytes)) if bytes.len() == SHA256_DIGEST_LEN => {
-                bytes_to_base64(bytes)
-            }
-            Some(CborValue::Bytes(bytes)) => {
-                return Err(MajikSignatureError::serialization(format!(
-                    "MJKSMAP.entries[{index}].contentHash must be 32 bytes; received {}",
-                    bytes.len()
-                )));
-            }
-            _ => {
-                return Err(MajikSignatureError::serialization(format!(
-                    "MJKSMAP.entries[{index}].contentHash must be a CBOR byte string"
-                )));
-            }
-        };
+        let digest = cbor_byte_string(
+            cbor_map_get(fields, "contentHash"),
+            &format!("MJKSMAP.entries[{index}].contentHash"),
+        )?;
+        if digest.len() != SHA256_DIGEST_LEN {
+            return Err(MajikSignatureError::serialization(format!(
+                "MJKSMAP.entries[{index}].contentHash must be 32 bytes; received {}",
+                digest.len()
+            )));
+        }
+        let content_hash = bytes_to_base64(&digest);
 
         let size = match cbor_map_get(fields, "size") {
             None => None,
