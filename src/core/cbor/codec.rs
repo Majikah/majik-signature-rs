@@ -8,6 +8,7 @@ use ciborium::value::Value;
 /// Structural/schema error raised while encoding or decoding CBOR (TS `TypeError`).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
+/// Structural or schema failure raised during CBOR encoding or decoding.
 pub struct CborError(pub String);
 
 impl CborError {
