@@ -33,6 +33,7 @@ pub fn compute_p_hash(pixels: &[u8], width: usize, height: usize) -> String {
     format!("{high:08x}{low:08x}")
 }
 
+/// Return the bitwise Hamming distance between two hexadecimal perceptual hashes.
 pub fn hamming_distance(hash_a: &str, hash_b: &str) -> MajikSignatureResult<u32> {
     if hash_a.len() != 16 || hash_b.len() != 16 {
         return Err(MajikSignatureError::new("pHash must be a 16-character hex string"));
@@ -48,6 +49,7 @@ pub fn hamming_distance(hash_a: &str, hash_b: &str) -> MajikSignatureResult<u32>
     Ok(dist)
 }
 
+/// Return whether two perceptual hashes are within the supplied Hamming-distance threshold.
 pub fn p_hash_matches(hash_a: &str, hash_b: &str, threshold: u32) -> MajikSignatureResult<bool> {
     Ok(hamming_distance(hash_a, hash_b)? <= threshold)
 }
