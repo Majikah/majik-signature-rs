@@ -90,7 +90,6 @@ impl Write for BoundedWriter {
     }
 }
 
-
 fn cbor_text(value: &str) -> CborValue {
     CborValue::Text(value.to_string())
 }
@@ -104,9 +103,7 @@ fn cbor_map_get<'a>(entries: &'a [(CborValue, CborValue)], key: &str) -> Option<
 
 fn cbor_object<'a>(value: &'a CborValue, field: &str) -> R<&'a [(CborValue, CborValue)]> {
     let CborValue::Map(entries) = value else {
-        return Err(MajikSignatureError::serialization(format!(
-            "{field} must be a CBOR map"
-        )));
+        return Err(MajikSignatureError::serialization(format!("{field} must be a CBOR map")));
     };
     let mut seen = std::collections::HashSet::new();
     for (key, _) in entries {
@@ -124,16 +121,10 @@ fn cbor_object<'a>(value: &'a CborValue, field: &str) -> R<&'a [(CborValue, Cbor
     Ok(entries)
 }
 
-fn cbor_required_text<'a>(
-    entries: &'a [(CborValue, CborValue)],
-    key: &str,
-    field: &str,
-) -> R<&'a str> {
+fn cbor_required_text<'a>(entries: &'a [(CborValue, CborValue)], key: &str, field: &str) -> R<&'a str> {
     match cbor_map_get(entries, key) {
         Some(CborValue::Text(value)) if !value.is_empty() => Ok(value),
-        _ => Err(MajikSignatureError::serialization(format!(
-            "{field} must be a non-empty CBOR text string"
-        ))),
+        _ => Err(MajikSignatureError::serialization(format!("{field} must be a non-empty CBOR text string"))),
     }
 }
 
@@ -143,28 +134,18 @@ fn cbor_byte_string(value: Option<&CborValue>, field: &str) -> R<Vec<u8>> {
         // cbor-x represents Uint8Array values using RFC 8746 tag 64 by default.
         Some(CborValue::Tag(64, inner)) => match inner.as_ref() {
             CborValue::Bytes(bytes) => Ok(bytes.clone()),
-            _ => Err(MajikSignatureError::serialization(format!(
-                "{field} must contain a CBOR byte string"
-            ))),
+            _ => Err(MajikSignatureError::serialization(format!("{field} must contain a CBOR byte string"))),
         },
-        _ => Err(MajikSignatureError::serialization(format!(
-            "{field} must be a CBOR byte string"
-        ))),
+        _ => Err(MajikSignatureError::serialization(format!("{field} must be a CBOR byte string"))),
     }
 }
 
-fn cbor_required_u64(
-    entries: &[(CborValue, CborValue)],
-    key: &str,
-    field: &str,
-) -> R<u64> {
+fn cbor_required_u64(entries: &[(CborValue, CborValue)], key: &str, field: &str) -> R<u64> {
     match cbor_map_get(entries, key) {
         Some(CborValue::Integer(value)) => u64::try_from(*value).map_err(|_| {
             MajikSignatureError::serialization(format!("{field} must be a non-negative integer"))
         }),
-        _ => Err(MajikSignatureError::serialization(format!(
-            "{field} must be a CBOR unsigned integer"
-        ))),
+        _ => Err(MajikSignatureError::serialization(format!("{field} must be a CBOR unsigned integer"))),
     }
 }
 
@@ -173,10 +154,7 @@ fn cbor_required_u64(
 /// strings, never as Base64/hex text.
 fn mjksmap_to_cbor(data: &MjksMapJSON) -> R<CborValue> {
     if data.version != MJKSMAP_SCHEMA_VERSION {
-        return Err(MajikSignatureError::validation(
-            "Unsupported MJKSMAP schema version",
-            Some("version"),
-        ));
+        return Err(MajikSignatureError::validation("Unsupported MJKSMAP schema version", Some("version")));
     }
 
     let mut entries = Vec::with_capacity(data.entries.len());
@@ -210,10 +188,7 @@ fn mjksmap_to_cbor(data: &MjksMapJSON) -> R<CborValue> {
     }
 
     Ok(CborValue::Map(vec![
-        (
-            cbor_text("version"),
-            CborValue::Integer(MJKSMAP_SCHEMA_VERSION.into()),
-        ),
+        (cbor_text("version"), CborValue::Integer(MJKSMAP_SCHEMA_VERSION.into())),
         (cbor_text("createdAt"), cbor_text(&data.created_at)),
         (cbor_text("entries"), CborValue::Array(entries)),
     ]))
@@ -222,14 +197,12 @@ fn mjksmap_to_cbor(data: &MjksMapJSON) -> R<CborValue> {
 /// Validate that the JSON model fits in the actual CBOR wire-format budget.
 fn validate_mjksmap_cbor_size(data: &MjksMapJSON) -> R<()> {
     let wire = mjksmap_to_cbor(data)?;
-    encode_cbor(&wire)
-        .map(|_| ())
-        .map_err(|error| {
-            MajikSignatureError::serialization_with_cause(
-                "MJKSMAP CBOR payload exceeds the maximum supported size or is invalid",
-                error,
-            )
-        })
+    encode_cbor(&wire).map(|_| ()).map_err(|error| {
+        MajikSignatureError::serialization_with_cause(
+            "MJKSMAP CBOR payload exceeds the maximum supported size or is invalid",
+            error,
+        )
+    })
 }
 
 /// Decode the CBOR-native manifest into the unchanged JSON-compatible model.
@@ -244,9 +217,7 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
     }
     let created_at = cbor_required_text(root, "createdAt", "MJKSMAP.createdAt")?.to_string();
     let Some(CborValue::Array(raw_entries)) = cbor_map_get(root, "entries") else {
-        return Err(MajikSignatureError::serialization(
-            "MJKSMAP.entries must be a CBOR array",
-        ));
+        return Err(MajikSignatureError::serialization("MJKSMAP.entries must be a CBOR array"));
     };
     if raw_entries.len() > MAX_MJKSMAP_ENTRIES {
         return Err(MajikSignatureError::serialization(format!(
@@ -257,12 +228,7 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
     let mut entries = Vec::with_capacity(raw_entries.len());
     for (index, raw_entry) in raw_entries.iter().enumerate() {
         let fields = cbor_object(raw_entry, &format!("MJKSMAP.entries[{index}]"))?;
-        let path = cbor_required_text(
-            fields,
-            "path",
-            &format!("MJKSMAP.entries[{index}].path"),
-        )?
-        .to_string();
+        let path = cbor_required_text(fields, "path", &format!("MJKSMAP.entries[{index}].path"))?.to_string();
 
         let digest = cbor_byte_string(
             cbor_map_get(fields, "contentHash"),
@@ -309,9 +275,7 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
         };
 
         let envelope_value = cbor_map_get(fields, "envelope").ok_or_else(|| {
-            MajikSignatureError::serialization(format!(
-                "MJKSMAP.entries[{index}].envelope is required"
-            ))
+            MajikSignatureError::serialization(format!("MJKSMAP.entries[{index}].envelope is required"))
         })?;
         let envelope = envelope_from_cbor(envelope_value).map_err(|error| {
             MajikSignatureError::serialization_with_cause(
@@ -320,20 +284,10 @@ fn mjksmap_from_cbor(value: &CborValue) -> R<MjksMapJSON> {
             )
         })?;
 
-        entries.push(MjksMapEntry {
-            path,
-            content_hash,
-            size,
-            mime_type,
-            envelope,
-        });
+        entries.push(MjksMapEntry { path, content_hash, size, mime_type, envelope });
     }
 
-    Ok(MjksMapJSON {
-        version: MJKSMAP_SCHEMA_VERSION,
-        created_at,
-        entries,
-    })
+    Ok(MjksMapJSON { version: MJKSMAP_SCHEMA_VERSION, created_at, entries })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -502,10 +456,8 @@ impl MajikSignatureMap {
     /// `[magic(7)][version(1)][reserved(1)][payloadLen(4, BE u32)][CBOR payload]`.
     /// New output always uses MJKSMAP container version 2.
     pub fn to_mjksmap_bytes(&self) -> Vec<u8> {
-        let wire = mjksmap_to_cbor(&self.to_json())
-            .expect("validated MJKSMAP model invariant");
-        let payload = encode_cbor(&wire)
-            .expect("validated MJKSMAP CBOR payload size invariant");
+        let wire = mjksmap_to_cbor(&self.to_json()).expect("validated MJKSMAP model invariant");
+        let payload = encode_cbor(&wire).expect("validated MJKSMAP CBOR payload size invariant");
         let mut out = Vec::with_capacity(MJKSMAP_HEADER_LEN + payload.len());
         out.extend_from_slice(&MJKSMAP_MAGIC);
         out.push(MJKSMAP_VERSION);
@@ -592,9 +544,7 @@ impl MajikSignatureMap {
                 let model = mjksmap_from_cbor(&decoded)?;
                 Self::from_json(&model)
             }
-            _ => Err(MajikSignatureError::serialization(format!(
-                "Unsupported MJKSMAP version: {version}"
-            ))),
+            _ => Err(MajikSignatureError::serialization(format!("Unsupported MJKSMAP version: {version}"))),
         }
     }
 
@@ -626,7 +576,9 @@ impl MajikSignatureMap {
         let mut writer = BoundedWriter::new(MAX_MJKSMAP_JSON_BYTES);
         if let Err(error) = serde_json::to_writer(&mut writer, &parsed) {
             let message = if writer.exceeded {
-                format!("MJKSMAP JSON model exceeds the maximum supported size of {MAX_MJKSMAP_JSON_BYTES} bytes")
+                format!(
+                    "MJKSMAP JSON model exceeds the maximum supported size of {MAX_MJKSMAP_JSON_BYTES} bytes"
+                )
             } else {
                 format!("Failed to serialize MJKSMAP input: {error}")
             };
