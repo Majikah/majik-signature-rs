@@ -123,8 +123,11 @@ pub const MAX_TSA_FIELD_CHARS: usize = 256;
 pub const MAX_SIGNATURES_PER_ENVELOPE: usize = 1024;
 pub const MAX_ALLOWLIST_ENTRIES: usize = 1024;
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024 * 1024;
-/// Maximum serialized MJKSMAP manifest payload (header excluded).
+/// Maximum serialized MJKSMAP binary payload (header excluded).
 pub const MAX_MJKSMAP_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum JSON model input size. Base64 expands raw binary fields, so the
+/// compatibility/API representation needs headroom over the CBOR wire limit.
+pub const MAX_MJKSMAP_JSON_BYTES: usize = 24 * 1024 * 1024;
 /// Maximum entries accepted in one MJKSMAP manifest.
 pub const MAX_MJKSMAP_ENTRIES: usize = 10_000;
 /// Maximum normalized logical path length in UTF-16 code units.
