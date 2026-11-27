@@ -8,6 +8,7 @@ use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
 
 /// Authoritative values used to bind a SignRoom signature to a signing attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Authoritative session, one-time challenge, and immutable policy values committed by a SignRoom signature.
 pub struct MajikSessionSigningContext {
     pub session_id: String,
     pub challenge_id: String,
