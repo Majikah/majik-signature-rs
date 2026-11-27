@@ -207,12 +207,12 @@ mjksig verify ./docs --map ./docs/signatures.mjksmap
 
 The common workflows are intentionally similar to the TypeScript CLI, but the exact Rust commands, options, and feature-gated behavior are documented in [CLI_README.md](CLI_README.md).
 
-## Layout (mirrors the TS tree)
+## Rust crate layout
 
 ```
 src/
-├── lib.rs                      ← index.ts
-├── majik_signature.rs          ← majik-signature.ts
+├── lib.rs                      ← public crate root and re-exports
+├── majik_signature.rs          ← main MajikSignature API
 ├── anchor/{mod.rs,types.rs}
 ├── core/
 │   ├── constants.rs errors.rs hash.rs payload.rs session_context.rs types.rs validator.rs
@@ -327,7 +327,7 @@ Please read these before relying on cross-implementation behaviour.
    - **Layer-2 signature** — TS signs a canvas-encoded PNG and verifies a re-encoded copy that carries no envelope (can't succeed). Here layer 2 signs the raw RGBA buffer, independent of any image encoder.
    - WebP output is lossless only (the `image` crate has no lossy WebP encoder).
 2. **ZIP timestamp is UTC.** fflate writes the DOS time in *local* time, so TS Office/ODF output differs by machine timezone; Rust always uses 1995-10-26 00:00:00 UTC (identical to TS on a UTC machine).
-3. **MJKSMAP paths** are indexed by their *normalised* form (TS indexes the raw string but looks up the normalised one, which misses un-normalised stored paths).
+3. **MJKSMAP paths** are normalized before indexing in both implementations. Rust uses a `HashMap`; TypeScript uses `Map`. Both normalize stored entries and lookup paths, and both reject path collisions after normalization.
 4. **`btoa` semantics** are kept in the text handler (signature JSON must be Latin-1) and MP3 frames with a ≥ 2³¹ size stop parsing instead of looping.
 5. **Canvas / `sharp` / browser branches** (`hasBrowserCanvas`, `decodeImageNode`, …) don't exist — the `image` crate does all decode/encode.
 
