@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1 - 2026-11-27
+- Raise the configurable reader-hashing chunk ceiling to 128 MiB.
+- Allocate streaming hash buffers fallibly before reading input, returning a normal error on reservation failure.
+- Add minimum/maximum chunk-boundary validation tests.
+
 ## Unreleased
 - Upgrade `jiff` to 1.0.3 and `majik-key` to 1.2.0; migrate civil date/time conversions to `to_zoned_datetime`, preserve UTC parsing semantics, and raise the MSRV to Rust 1.88.
 - Add explicit SignRoom FileVersion commitments and bind no-revision session signatures to the existing revision-chain hash without appending a new version.
