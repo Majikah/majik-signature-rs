@@ -46,7 +46,20 @@ pub fn hash_reader<Rd: Read>(
     }
 
     let mut hasher = Sha256::new();
-    let mut buffer = Zeroizing::new(vec![0u8; options.chunk_size]);
+    // Reserve the full buffer before touching the input stream. This makes allocation
+    // failure a recoverable error instead of relying on infallible Vec allocation.
+    let mut allocation = Vec::new();
+    allocation.try_reserve_exact(options.chunk_size).map_err(|error| {
+        MajikSignatureError::with_cause(
+            format!(
+                "Unable to allocate the {}-byte streaming hash buffer",
+                options.chunk_size
+            ),
+            error,
+        )
+    })?;
+    allocation.resize(options.chunk_size, 0);
+    let mut buffer = Zeroizing::new(allocation);
     let mut bytes_processed = 0u64;
 
     loop {
