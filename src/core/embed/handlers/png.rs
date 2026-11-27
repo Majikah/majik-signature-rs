@@ -16,6 +16,7 @@ struct Chunk<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in PNG ancillary chunks.
 pub struct PngHandler;
 
 impl PngHandler {
