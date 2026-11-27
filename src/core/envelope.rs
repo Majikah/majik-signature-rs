@@ -9,8 +9,8 @@ use base64::Engine as _;
 use majik_key::MajikKey;
 use serde::Serialize;
 use serde_json::Value;
-use std::io::{self, Write};
 use sha3::{Digest, Sha3_512};
+use std::io::{self, Write};
 
 use crate::anchor::types::MajikChainAnchor;
 use crate::core::cbor::{decode_cbor, encode_cbor, envelope_from_cbor, envelope_to_cbor};
