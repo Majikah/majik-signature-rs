@@ -33,12 +33,21 @@ mod tests {
 
     #[test]
     fn matches_ecmascript_whitespace_membership() {
-        assert_eq!(trim_ecmascript_whitespace("\u{feff}value\u{feff}"), "value");
+        assert_eq!(
+            trim_ecmascript_whitespace("\u{feff}value\u{feff}"),
+            "value"
+        );
         assert_eq!(
             trim_ecmascript_whitespace("\u{0085}value\u{0085}"),
             "\u{0085}value\u{0085}"
         );
-        assert_eq!(trim_ecmascript_whitespace("\u{00a0}value\u{3000}"), "value");
-        assert_eq!(trim_ecmascript_whitespace("\u{2028}value\u{2029}"), "value");
+        assert_eq!(
+            trim_ecmascript_whitespace("\u{00a0}value\u{3000}"),
+            "value"
+        );
+        assert_eq!(
+            trim_ecmascript_whitespace("\u{2028}value\u{2029}"),
+            "value"
+        );
     }
 }

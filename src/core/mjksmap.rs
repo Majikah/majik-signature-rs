@@ -728,14 +728,16 @@ fn validate_shape(obj: &serde_json::Map<String, Value>) -> R<Vec<MjksMapEntry>> 
     Ok(out)
 }
 
-
 #[cfg(test)]
 mod path_normalization_tests {
     use super::{normalize_path, validate_and_normalize_path};
 
     #[test]
     fn matches_ecmascript_trim_for_bom_and_next_line() {
-        assert_eq!(normalize_path("\u{feff}docs/a.txt\u{feff}"), "docs/a.txt");
+        assert_eq!(
+            normalize_path("\u{feff}docs/a.txt\u{feff}"),
+            "docs/a.txt"
+        );
 
         let next_line_path = "\u{0085}docs/a.txt\u{0085}";
         assert_eq!(normalize_path(next_line_path), next_line_path);

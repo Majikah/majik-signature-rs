@@ -95,8 +95,9 @@ A SignRoom participant may bind their signature to an immutable signing attempt.
 - `sessionId`: stable session identifier, non-empty, at most 256 UTF-16 code units, with no surrounding whitespace.
 - `challengeId`: single-use challenge identifier issued for that signing attempt, with the same identifier constraints.
 
-The surrounding-whitespace check uses the exact ECMAScript `String.prototype.trim()` whitespace and line-terminator set. The Rust implementation mirrors this set rather than using Rust's broader native Unicode whitespace classification. In particular, U+FEFF is trimmed while U+0085 is not.
 - `policyHash`: canonical padded Base64 encoding of a 32-byte SHA-256 digest of the immutable session policy snapshot.
+
+The surrounding-whitespace check uses the exact ECMAScript `String.prototype.trim()` whitespace and line-terminator set. The Rust implementation mirrors this set rather than using Rust's broader native Unicode whitespace classification. In particular, U+FEFF is trimmed while U+0085 is not.
 
 The context commitment is the Base64 SHA-256 digest of the domain prefix `majik-signature-session-context-v1:` followed by UTF-8 compact JSON with properties in this exact order: `v`, `sessionId`, `challengeId`, `policyHash`. The resulting `sessionContextHash` is included as `sch` in the canonical signature payload, so changing the session, challenge, or policy commitment invalidates both hybrid signatures.
 
