@@ -35,7 +35,7 @@ pub struct ZipEntries {
 
 impl ZipEntries {
     /// Create an empty ZIP-entry collection.
-pub fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
     /// `files[name] = data` — replaces in place if the name exists, else appends.
@@ -50,23 +50,23 @@ pub fn new() -> Self {
         self.entries.retain(|(n, _)| n != name);
     }
     /// Return the uncompressed bytes for a named entry, if present.
-pub fn get(&self, name: &str) -> Option<&[u8]> {
+    pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.entries.iter().find(|(n, _)| n == name).map(|(_, d)| d.as_slice())
     }
     /// Check whether a named ZIP entry exists.
-pub fn contains(&self, name: &str) -> bool {
+    pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
     /// Iterate over archive entries in their stored order.
-pub fn iter(&self) -> impl Iterator<Item = &(String, Vec<u8>)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(String, Vec<u8>)> {
         self.entries.iter()
     }
     /// Return the number of entries in the collection.
-pub fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.entries.len()
     }
     /// Return whether the collection contains no entries.
-pub fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
@@ -83,8 +83,8 @@ fn decode_name(raw: &[u8]) -> String {
     }
 }
 
-/// Entry names, in central-directory order, without decompressing anything.
-pub fn list_names(bytes: &[u8]) -> MajikSignatureResult<Vec<String>> {
+    /// Entry names, in central-directory order, without decompressing anything.
+    pub fn list_names(bytes: &[u8]) -> MajikSignatureResult<Vec<String>> {
     let archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(zip_err)?;
     let mut out = Vec::with_capacity(archive.len());
     let mut archive = archive;
@@ -95,8 +95,8 @@ pub fn list_names(bytes: &[u8]) -> MajikSignatureResult<Vec<String>> {
     Ok(out)
 }
 
-/// Read selected entries (`want(name, uncompressed_size)`), in archive order.
-pub fn unzip_filtered(
+    /// Read selected entries (`want(name, uncompressed_size)`), in archive order.
+    pub fn unzip_filtered(
     bytes: &[u8],
     mut want: impl FnMut(&str, u64) -> bool,
 ) -> MajikSignatureResult<ZipEntries> {
@@ -118,8 +118,8 @@ pub fn unzip_filtered(
     Ok(out)
 }
 
-/// Read every entry, refusing archives whose declared total exceeds [`MAX_UNZIPPED_BYTES`].
-pub fn unzip_bounded(bytes: &[u8]) -> MajikSignatureResult<ZipEntries> {
+    /// Read every entry, refusing archives whose declared total exceeds [`MAX_UNZIPPED_BYTES`].
+    pub fn unzip_bounded(bytes: &[u8]) -> MajikSignatureResult<ZipEntries> {
     let mut total: u64 = 0;
     // The size check must happen before any entry is inflated.
     {
@@ -148,8 +148,8 @@ fn u32le(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
 }
 
-/// `fflate.zipSync(toZippable(files), { level: 0 })` with the canonical mtime.
-pub fn zip_stored(files: &ZipEntries) -> MajikSignatureResult<Vec<u8>> {
+    /// `fflate.zipSync(toZippable(files), { level: 0 })` with the canonical mtime.
+    pub fn zip_stored(files: &ZipEntries) -> MajikSignatureResult<Vec<u8>> {
     let (dos_time, dos_date) = dos_time_date();
     let mut local = Vec::new();
     let mut central = Vec::new();
