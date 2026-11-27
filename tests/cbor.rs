@@ -345,3 +345,26 @@ fn rejects_invalid_revision_metadata_from_envelope_builder() {
     let error = MajikSignatureEnvelope::empty().with_file_version(version).unwrap_err();
     assert!(error.to_string().contains("message exceeds the limit"));
 }
+
+
+#[test]
+fn rejects_oversized_builder_allowlists_and_seal_metadata() {
+    let fingerprint = bytes_to_base64(&[0x11; 32]);
+    let signer = ExpectedSigner {
+        signer_id: fingerprint.clone(),
+        ed_public_key: bytes_to_base64(&[0x22; ED25519_PUBLIC_KEY_LEN]),
+        ml_dsa_public_key: bytes_to_base64(&[0x33; ML_DSA_87_PUBLIC_KEY_LEN]),
+    };
+    let allowlist = vec![signer; MAX_ALLOWLIST_ENTRIES + 1];
+    assert!(MajikSignatureEnvelope::empty()
+        .with_allowlist(&allowlist, &fingerprint)
+        .unwrap_err()
+        .to_string()
+        .contains("Allowlist exceeds the limit"));
+
+    assert!(MajikSignatureEnvelope::empty()
+        .with_seal(&"x".repeat(MAX_SIGNER_ID_CHARS + 1), None)
+        .unwrap_err()
+        .to_string()
+        .contains("sealedBy"));
+}
