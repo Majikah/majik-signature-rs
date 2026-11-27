@@ -2,7 +2,9 @@
 //! Hand-ported (not a crate) so the codeword layout and generator roots match TS exactly.
 
 pub const RS_DATA_BYTES: usize = 150; // must match STUB_SIZE
+/// Number of parity bytes used to correct errors in the compact DCT stamp block.
 pub const RS_ECC_BYTES: usize = 75; // ~50% overhead → corrects up to 37 byte errors
+/// Encoded compact-stamp block length, including payload and parity bytes.
 pub const RS_TOTAL_BYTES: usize = RS_DATA_BYTES + RS_ECC_BYTES; // 225
 
 const PRIMITIVE_POLY: u32 = 0x11d;
