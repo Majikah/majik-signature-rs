@@ -2,13 +2,16 @@
 
 ## 1.6.0 - 2026-11-28
 - Align the core release version with the TypeScript package.
-- Match TypeScript and Rust streaming chunk-size limits at 64 KiB–256 MiB, retaining a 1 MiB default and 8 MiB automatic threshold.
+- Match TypeScript and Rust streaming chunk-size limits at 64 KiB–64 MiB, retaining a 1 MiB default and 8 MiB automatic threshold.
 - Enforce declared total stream lengths, rejecting both truncated and overlong readers before accepting a digest.
 - Add regression coverage for expected-length validation and cross-path hash equivalence.
 - Add `MajikSignature::sign_batch_detached_stream()` with sequential reader consumption, bounded chunking, per-file progress, cancellation, and per-file failure collection.
 - Preserve existing `.mjksmap` / `.mjksig` batch result formats for streaming inputs.
 - Add `MajikSignature::verify_files_from_mjksmap_stream()` with single-pass digest verification, path-first tamper detection, and content-hash relocation.
 - Cover both MJKSMAP and separate MJKSIG output modes in streaming batch signing tests.
+- Bound MJKSMAP payloads to 16 MiB, entries to 10,000, and normalized paths to 4,096 UTF-16 code units; reject traversal, spoofing controls, duplicate normalized paths, malformed UTF-8, trailing bytes, and invalid header fields.
+- Apply the 16 MiB envelope ceiling to typed objects and immutable builders; reject oversized Base64 before decoding and validate builder-supplied signatures, allowlists, seals, anchors, and revision metadata.
+- Add virtual 32 MiB multi-chunk stress tests and an opt-in 10 GiB reader stress test, plus read-failure and invalid chunk configuration regressions.
 
 ## 1.5.1 - 2026-11-27
 - Raise the configurable reader-hashing chunk ceiling to 128 MiB.
