@@ -27,7 +27,6 @@ use crate::core::constants::*;
 use crate::core::envelope::MajikSignatureEnvelope;
 use crate::core::errors::{MajikSignatureError, MajikSignatureResult};
 use crate::core::hash::{base64_to_bytes, bytes_to_base64, hash_content};
-use crate::core::mjksmap::MajikSignatureMap;
 use crate::core::payload::{
     build_signature_attestation_bytes, build_signing_payload, build_tsa_canonical_bytes, PayloadFields,
 };
