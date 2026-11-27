@@ -300,6 +300,7 @@ pub struct ExtractOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Options used when checking an envelope embedded in a file.
 pub struct VerifyEmbeddedOptions {
     pub mime_type: Option<String>,
     pub expected_signer_id: Option<String>,
@@ -321,6 +322,7 @@ pub trait FormatHandler: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
+/// Embedded file bytes and the handler/MIME metadata used to produce them.
 pub struct EmbedResult {
     /// TS `Blob` → raw bytes.
     pub blob: Vec<u8>,
@@ -358,6 +360,7 @@ pub struct MjksMapJSON {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Path lookup result, including whether an optional supplied file hash matched.
 pub struct MjksMapFindResult {
     pub found: bool,
     pub entry: Option<MjksMapEntry>,
@@ -375,6 +378,7 @@ pub struct BatchFileInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Selects a single MJKSMAP result or one detached MJKSIG per input file.
 pub enum BatchSignMode {
     #[default]
     Map,
@@ -573,6 +577,7 @@ pub struct SessionFileTsaVerificationResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Combined result for SignRoom participant, revision-chain, and TSA verification.
 pub struct SessionFileVerificationResult {
     pub valid: bool,
     pub results: Vec<VerificationResult>,
@@ -637,6 +642,7 @@ pub enum BatchSignResult {
 }
 
 #[derive(Debug, Clone)]
+/// Detached MJKSIG sidecar bytes paired with their source file path.
 pub struct SeparateSignature {
     pub path: String,
     pub blob: Vec<u8>,
