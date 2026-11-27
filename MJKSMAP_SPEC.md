@@ -3,9 +3,9 @@
 [![Static Badge](https://img.shields.io/badge/IANA-vnd.majikah.mjksmap-green)](https://www.iana.org/assignments/media-types/application/vnd.majikah.mjksmap)
 
 
-**Status:** Version 1
-**Schema version:** `1` (`0x01`)
-**Format:** Self-identifying binary container carrying a JSON manifest
+**Status:** Container version 2 (CBOR); version 1 JSON remains readable
+**Manifest schema version:** `1` (`0x01`)
+**Format:** Self-identifying binary container carrying a CBOR-native manifest
 **Purpose:** Batch/folder/archive mapping of file paths to detached `MajikSignatureEnvelope` objects
 
 ---
@@ -79,66 +79,63 @@ Every map entry stores a complete `MajikSignatureEnvelope`, making the map self-
 
 ## 4. Binary Container Format
 
-An `.mjksmap` file contains a fixed header followed by a UTF-8 encoded JSON payload.
+An `.mjksmap` file contains a fixed 13-byte header followed by exactly one length-prefixed payload. The header version selects the payload encoding.
 
 ### 4.1 Layout
 
 | Offset | Length | Description |
 |---|---:|---|
-| `0` | `MJKSMAP_MAGIC_LEN` | Magic bytes identifying the container |
-| `MJKSMAP_MAGIC_LEN` | `1` | Container/schema version (`MJKSMAP_VERSION`, currently `0x01`) |
-| `MJKSMAP_MAGIC_LEN + 1` | `1` | Reserved byte; version 1 writers emit `0x00` |
-| `MJKSMAP_MAGIC_LEN + 2` | `4` | Payload length as a big-endian 32-bit field |
-| `MJKSMAP_HEADER_LEN` | `payloadLen` | UTF-8 encoded JSON payload |
+| `0` | `MJKSMAP_MAGIC_LEN` | ASCII magic bytes `MJKSMAP` |
+| `MJKSMAP_MAGIC_LEN` | `1` | Container version |
+| `MJKSMAP_MAGIC_LEN + 1` | `1` | Reserved byte; must be `0x00` |
+| `MJKSMAP_MAGIC_LEN + 2` | `4` | Payload length as unsigned big-endian 32-bit integer |
+| `MJKSMAP_HEADER_LEN` | `payloadLen` | Version-selected payload bytes |
 
-For the current format:
+The header constants are unchanged across versions:
 
 - Magic: ASCII `MJKSMAP`
 - Magic length: `7` bytes
 - Header length: `13` bytes
-- Payload: JSON representation of `MjksMapJSON`
+- Maximum payload length: `16 MiB`
 
-Therefore, the first payload byte is at offset `13`.
+### 4.2 Container versions
 
-### 4.2 Version
+| Container version | Encoding | Read | Write |
+|---|---|---|---|
+| `0x01` | UTF-8 JSON manifest (legacy) | Yes | No |
+| `0x02` | CBOR-native manifest (current) | Yes | **Yes — default** |
 
-The current supported version is:
+New `.mjksmap` files always use container version `0x02`. Version `0x01` exists only for backward compatibility with previously generated JSON containers.
 
-```text
-0x01
-```
+The manifest schema version inside either payload remains `1`. The container version is an encoding selector, not a change to the map's logical schema or cryptographic semantics.
 
-The parser checks the header version against `MJKSMAP_SUPPORTED_VERSIONS` before decoding the payload.
+### 4.3 Payload length and validation
 
-The JSON payload must also contain schema version `1`.
+The header records the exact number of payload bytes. Readers reject empty or oversized payloads, a declared length that exceeds the available buffer, and any trailing bytes after the declared payload.
 
-### 4.3 Payload length
-
-The header records the number of bytes occupied by the JSON payload.
-
-The parser rejects a non-positive payload length and rejects a declared payload length that extends beyond the supplied input buffer.
-
-The current parser reads the four-byte field using JavaScript bitwise operators; callers should therefore treat the practical supported payload size as constrained by the JavaScript implementation as well as the 32-bit header field.
+Readers also require the reserved byte to be zero and require the payload to contain exactly one complete CBOR data item for version `0x02`. Version `0x01` is decoded as strict UTF-8 JSON.
 
 ### 4.4 Malformed binary input
 
-Binary parsing fails with `MajikSignatureSerializationError` when, among other cases:
+Binary parsing fails with a serialization error when, among other cases:
 
-- the input is too short to contain a header and non-empty payload;
+- the input is too short to contain a complete header and non-empty payload;
 - the magic bytes do not match `MJKSMAP`;
-- the version is not supported;
-- the payload length is invalid; or
-- the declared payload extends beyond the input buffer.
+- the container version is unsupported;
+- the reserved byte is nonzero;
+- the payload length is invalid, oversized, truncated, or followed by trailing bytes;
+- a v1 payload is not valid UTF-8 or JSON; or
+- a v2 payload is malformed CBOR, contains more than one top-level data item, or does not match the MJKSMAP CBOR schema.
 
-The current parser does not separately enforce a zero value for the reserved byte and does not reject additional bytes after the declared payload.
+A v2 parsing failure is never retried as JSON.
 
----
+## 5. Manifest Schema and CBOR Payload
 
-## 5. JSON Payload
+The public object model remains `MjksMapJSON` with schema version `1`. The JSON API is retained for application interoperability and legacy v1 parsing. It is **not** the representation written inside new `.mjksmap` files.
 
-The payload is a JSON object corresponding to `MjksMapJSON`.
+### 5.1 Logical manifest model
 
-### 5.1 Root object
+The root object has the following logical shape:
 
 ```json
 {
@@ -148,39 +145,43 @@ The payload is a JSON object corresponding to `MjksMapJSON`.
 }
 ```
 
-#### `version`
+- `version` is the manifest schema version and must equal `1`.
+- `createdAt` is a non-empty ISO 8601 timestamp.
+- `entries` is an array of per-file entries; an empty array is valid.
 
-Type: `number`
+`toJSON()` continues to return this JSON-compatible representation. In that public representation, binary values are represented by their existing Base64 or hexadecimal strings.
 
-Required value:
+### 5.2 CBOR-native representation (container v2)
 
-```text
-1
-```
+The v2 payload is one standard CBOR map with the same logical root and entry fields. It is converted through the shared CBOR wire adapters used by `MJKSIG`; it is **not** a generic CBOR encoding of the JSON object.
 
-The implementation requires the value to equal `MJKSMAP_VERSION`.
+Binary data is represented as CBOR byte strings (`byte string` major type), rather than Base64/hex text. This includes:
 
-#### `createdAt`
+- each entry's SHA-256 `contentHash` (32 raw bytes);
+- envelope signer IDs and public keys;
+- per-signer content hashes and Ed25519 / ML-DSA signatures;
+- allowlist hashes and signer IDs;
+- seal hashes and sealer IDs;
+- TSA digest values, nonces, and TSA signer fingerprints;
+- revision-chain and session-context hashes; and
+- chain-anchor digest values.
 
-Type: `string`
+Text fields such as paths, timestamps, MIME types, identifiers, and transaction signatures remain CBOR text strings. File sizes remain CBOR unsigned integers. Optional fields remain omitted when absent.
 
-Required: non-empty string.
+The envelope uses the exact same CBOR-native field mapping as the standalone `MJKSIG` / `MajikSignatureEnvelope` adapter. A consumer must decode the binary fields to the existing JSON model before using the ordinary envelope APIs.
 
-The public specification describes this as the map creation timestamp and the library's `empty()` constructor uses `new Date().toISOString()`.
+### 5.3 Why the binary mapping matters
 
-The current validator checks that the value is a non-empty string; it does not independently parse or canonicalize the timestamp as an ISO 8601 date.
+Base64 expands binary data to approximately four-thirds of its original byte length. A CBOR byte string stores the underlying bytes directly, avoiding that textual expansion for hashes, public keys, signatures, and other binary envelope fields. CBOR does not compress the manifest; the size reduction comes from using binary fields instead of Base64 or hex encodings.
 
-#### `entries`
+### 5.4 Backward compatibility
 
-Type: array
+A reader selects the parser strictly from the container header:
 
-Required: yes.
+- version `0x01`: parse the UTF-8 JSON payload and validate manifest schema `1`;
+- version `0x02`: decode one CBOR data item, convert binary fields to the JSON model, and validate manifest schema `1`.
 
-Each member must satisfy the entry structure described below.
-
-An empty array is valid.
-
----
+The JSON model and its schema remain unchanged, allowing existing `toJSON()` / `fromJSON()` integrations to continue working.
 
 ## 6. Entry Structure
 
@@ -215,7 +216,7 @@ Required: non-empty after trimming.
 
 The intended value is the Base64 representation of the SHA-256 digest of the file bytes represented by the entry.
 
-The current map validator checks only that the field is a non-empty string. It does not, by itself, enforce a specific Base64 alphabet, padding policy, or digest length.
+The JSON model validator requires a canonical Base64-encoded 32-byte SHA-256 digest. The v2 CBOR representation stores the same digest as a raw 32-byte byte string.
 
 ### 6.3 `envelope`
 
@@ -419,7 +420,7 @@ The map does not alter the envelope's internal cryptographic semantics.
 
 ### `MajikSignatureMap.empty()`
 
-Creates a new version-1 map with:
+Creates a new logical map using manifest schema version 1 (new binary output is still container v2) with:
 
 - `version: 1`;
 - `createdAt: new Date().toISOString()`; and
@@ -548,7 +549,7 @@ It checks only whether the leading bytes match the `MJKSMAP_MAGIC` sequence.
 
 It does **not**:
 
-- parse the JSON payload;
+- parse or validate the version-selected JSON/CBOR payload;
 - validate the payload length;
 - validate the schema version; or
 - validate the contents of the map.
@@ -723,7 +724,7 @@ MajikSignatureMap.isMJKSMAP(input)
 
 ## 22. Size and Performance Considerations
 
-Each entry embeds a complete `MajikSignatureEnvelope`, so map size grows with the number of files and signers rather than with file content size.
+Each entry embeds a complete `MajikSignatureEnvelope`, so map size grows with the number of files and signers rather than with file content size. Container v2 stores cryptographic binary fields as CBOR byte strings, avoiding Base64/hex expansion in the on-disk payload.
 
 The map stores hashes rather than file bytes. A large video and a small text file therefore contribute approximately the same hash-field size, although their envelopes may differ depending on the number of signers and optional metadata.
 
@@ -731,13 +732,13 @@ Lookup by path is intended to be inexpensive because the implementation maintain
 
 Lookup by content requires reading and hashing the candidate file.
 
-For large batches, callers should avoid repeatedly hashing the same file bytes when they can reuse an already-computed SHA-256 digest.
+For large batches, callers should avoid repeatedly hashing the same file bytes when they can reuse an already-computed SHA-256 digest. The binary payload is limited to 16 MiB; JSON API inputs allow up to 24 MiB to account for Base64 representation overhead, while legacy v1 binary JSON payloads remain subject to the 16 MiB container limit.
 
 ---
 
 ## 23. Compatibility and Versioning
 
-The binary header version and JSON schema version are both currently `1`.
+The current binary writer uses container version `2` (CBOR). Readers accept container versions `1` (legacy JSON) and `2` (CBOR). Both payload encodings carry manifest schema version `1`.
 
 Consumers must reject unsupported container versions rather than guessing how to interpret them.
 
@@ -765,7 +766,7 @@ The current documented values are:
 ```text
 MJKSMAP_MAGIC        = ASCII "MJKSMAP"
 MJKSMAP_MAGIC_LEN    = 7
-MJKSMAP_VERSION      = 0x01
+MJKSMAP_JSON_VERSION = 0x01  (legacy JSON reader)\nMJKSMAP_CBOR_VERSION = 0x02  (current writer)\nMJKSMAP_VERSION      = 0x02  (current container version)\nMJKSMAP_SCHEMA_VERSION = 0x01
 MJKSMAP_HEADER_LEN   = 13
 ```
 
@@ -842,6 +843,6 @@ Its main responsibilities are:
 2. provide efficient path-based lookup;
 3. retain content hashes for integrity checking and relocation lookup;
 4. carry full detached multi-signature envelopes alongside their entries; and
-5. serialize the manifest into a self-identifying `.mjksmap` binary container.
+5. convert binary envelope fields to CBOR byte strings and serialize the manifest into a self-identifying MJKSMAP v2 `.mjksmap` container.
 
 Its cryptographic responsibility ends at carrying the existing signature envelopes. The actual authenticity decision remains with the `MajikSignature` verification layer and, where applicable, the application's trust policy for signer identities.
