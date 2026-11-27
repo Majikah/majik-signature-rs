@@ -62,6 +62,7 @@ fn atob(s: &str) -> Option<String> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Format handler for signature metadata embedded in supported text formats.
 pub struct TextHandler;
 
 impl TextHandler {
