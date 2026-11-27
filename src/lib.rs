@@ -8,7 +8,9 @@
 
 pub mod anchor;
 #[cfg(feature = "cli")]
+/// Internal CLI command implementations used by the `mjksig` binary.
 pub mod cli_core;
+/// Core signature, envelope, manifest, streaming, and serialization types and functions.
 pub mod core;
 mod majik_signature;
 
