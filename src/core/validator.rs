@@ -194,27 +194,31 @@ pub struct MajikSignatureValidator;
 impl MajikSignatureValidator {
     // ── Assertions ───────────────────────────────────────────────────────────
 
-    pub fn assert(condition: bool, message: &str, field: Option<&str>) -> R {
+        /// Return a validation error when the supplied condition is false.
+pub fn assert(condition: bool, message: &str, field: Option<&str>) -> R {
         if !condition {
             return Err(verr(message, field));
         }
         Ok(())
     }
 
-    pub fn assert_defined<'a, T>(value: Option<&'a T>, field: &str) -> R<&'a T> {
+        /// Require an optional reference to be present.
+pub fn assert_defined<'a, T>(value: Option<&'a T>, field: &str) -> R<&'a T> {
         value.ok_or_else(|| {
             verr(format!("{field} is required and must not be null or undefined"), Some(field))
         })
     }
 
-    pub fn assert_non_empty_string(value: &str, field: &str) -> R {
+        /// Require a string to contain at least one non-whitespace character.
+pub fn assert_non_empty_string(value: &str, field: &str) -> R {
         if value.trim().is_empty() {
             return Err(verr(format!("{field} must be a non-empty string"), Some(field)));
         }
         Ok(())
     }
 
-    pub fn assert_bytes(value: &[u8], field: &str, expected_len: Option<usize>) -> R {
+        /// Validate an already-decoded byte slice against an optional exact length.
+pub fn assert_bytes(value: &[u8], field: &str, expected_len: Option<usize>) -> R {
         if let Some(len) = expected_len {
             if value.len() != len {
                 return Err(verr(
@@ -228,26 +232,31 @@ impl MajikSignatureValidator {
 
     // ── Content validators ───────────────────────────────────────────────────
 
-    pub fn validate_content(content: &[u8]) -> R {
+        /// Validate raw content before it is hashed for signing or verification.
+pub fn validate_content(content: &[u8]) -> R {
         Self::validate_content_field(content, "content")
     }
 
-    pub fn validate_content_field(content: &[u8], field: &str) -> R {
+        /// Validate a named byte field and report the supplied field name on failure.
+pub fn validate_content_field(content: &[u8], field: &str) -> R {
         if content.is_empty() {
             return Err(verr(format!("{field} must not be empty"), Some(field)));
         }
         Ok(())
     }
 
-    pub fn validate_timestamp_for_signing(value: &str) -> R {
+        /// Validate an ISO 8601 timestamp before including it in a signed record.
+pub fn validate_timestamp_for_signing(value: &str) -> R {
         validate_timestamp(value, "timestamp")
     }
 
-    pub fn validate_sha256_digest(value: &str, field: &str) -> R {
+        /// Validate that a Base64 string is a canonical 32-byte SHA-256 digest.
+pub fn validate_sha256_digest(value: &str, field: &str) -> R {
         validate_canonical_base64(value, SHA256_DIGEST_LEN, field)
     }
 
-    pub fn validate_content_type(content_type: Option<&str>) -> R {
+        /// Validate an optional advisory content-type metadata string.
+pub fn validate_content_type(content_type: Option<&str>) -> R {
         match content_type {
             Some(ct) => validate_bounded_string(ct, MAX_CONTENT_TYPE_CHARS, "contentType"),
             None => Ok(()),
@@ -256,7 +265,8 @@ impl MajikSignatureValidator {
 
     // ── Key validators ───────────────────────────────────────────────────────
 
-    pub fn validate_signer_public_keys(keys: &MajikSignerPublicKeys) -> R {
+        /// Validate the signer fingerprint and both hybrid public-key byte lengths.
+pub fn validate_signer_public_keys(keys: &MajikSignerPublicKeys) -> R {
         validate_canonical_base64(&keys.signer_id, SHA256_DIGEST_LEN, "signerId")?;
         if keys.ed_public_key.len() != ED25519_PUBLIC_KEY_LEN {
             return Err(MajikSignatureError::key(format!(
@@ -273,7 +283,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_ed_secret_key(key: &[u8]) -> R {
+        /// Validate the expected Ed25519 secret-key byte length before signing.
+pub fn validate_ed_secret_key(key: &[u8]) -> R {
         if key.len() != ED25519_SECRET_KEY_LEN {
             return Err(MajikSignatureError::key(format!(
                 "Ed25519 secret key must be 64 bytes (got {})",
@@ -283,7 +294,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_ml_dsa_secret_key(key: &[u8]) -> R {
+        /// Validate the expected ML-DSA-87 secret-key byte length before signing.
+pub fn validate_ml_dsa_secret_key(key: &[u8]) -> R {
         if key.len() != ML_DSA_87_SECRET_KEY_LEN {
             return Err(MajikSignatureError::key(format!(
                 "ML-DSA-87 secret key must be 4896 bytes (got {})",
@@ -393,7 +405,8 @@ impl MajikSignatureValidator {
 
     // ── ExpectedSigner validator ─────────────────────────────────────────────
 
-    pub fn validate_expected_signer_value(entry: &Value, index: Option<usize>) -> R {
+        /// Validate one untrusted JSON allowlist entry and its public-key encodings.
+pub fn validate_expected_signer_value(entry: &Value, index: Option<usize>) -> R {
         let label = index.map(|i| format!("allowlist[{i}]")).unwrap_or_else(|| "allowlist entry".to_string());
         let e = entry.as_object().ok_or_else(|| verr(format!("{label} must be an object"), Some(&label)))?;
         validate_canonical_base64(required_object_string(e, "signerId")?, SHA256_DIGEST_LEN, "signerId")?;
@@ -410,7 +423,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_expected_signer(entry: &ExpectedSigner, index: Option<usize>) -> R {
+        /// Validate a typed allowlist signer entry.
+pub fn validate_expected_signer(entry: &ExpectedSigner, index: Option<usize>) -> R {
         let v = serde_json::to_value(entry).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Failed to serialize ExpectedSigner", e)
         })?;
@@ -460,7 +474,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_seal_hash(hash: &str) -> R {
+        /// Validate the hexadecimal SHA3-512 seal digest representation.
+pub fn validate_seal_hash(hash: &str) -> R {
         if hash.len() != SEAL_HASH_HEX_LEN || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(verr(
                 format!("sealHash must be exactly {SEAL_HASH_HEX_LEN} hex chars (SHA3-512)"),
@@ -490,7 +505,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_valid_until(value: Option<&str>) -> R {
+        /// Validate an optional expiry timestamp before it enters the signed payload.
+pub fn validate_valid_until(value: Option<&str>) -> R {
         match value {
             Some(v) => validate_timestamp(v, "validUntil"),
             None => Ok(()),
@@ -615,7 +631,8 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_multi_sig_envelope(env: &MultiSigEnvelope) -> R {
+        /// Validate envelope shape, signer counts, allowlist/seal consistency, anchors, and revision metadata.
+pub fn validate_multi_sig_envelope(env: &MultiSigEnvelope) -> R {
         let v = serde_json::to_value(env).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Failed to serialize MultiSigEnvelope", e)
         })?;
@@ -624,7 +641,8 @@ impl MajikSignatureValidator {
 
     // ── TSA validators ───────────────────────────────────────────────────────
 
-    pub fn validate_majik_tsa_payload_value(payload: &Value) -> R {
+        /// Validate an untrusted JSON TSA payload value and its nested digest/identity fields.
+pub fn validate_majik_tsa_payload_value(payload: &Value) -> R {
         let p = payload.as_object().ok_or_else(|| verr("TSA payload must be an object", None))?;
         let d = p
             .get("digest")
@@ -669,14 +687,16 @@ impl MajikSignatureValidator {
         Ok(())
     }
 
-    pub fn validate_majik_tsa_payload(payload: &MajikTsaPayload) -> R {
+        /// Validate a typed TSA payload before its canonical bytes are signed or checked.
+pub fn validate_majik_tsa_payload(payload: &MajikTsaPayload) -> R {
         let v = serde_json::to_value(payload).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Failed to serialize TSA payload", e)
         })?;
         Self::validate_majik_tsa_payload_value(&v)
     }
 
-    pub fn validate_majik_timestamp_value(tsa: &Value) -> R {
+        /// Validate an untrusted TSA token JSON value, including recursive signature nesting bounds.
+pub fn validate_majik_timestamp_value(tsa: &Value) -> R {
         Self::validate_majik_timestamp_value_at(tsa, 0)
     }
 
@@ -698,7 +718,8 @@ impl MajikSignatureValidator {
         Self::validate_json_value_at(t.get("signature").unwrap_or(&Value::Null), depth + 1)
     }
 
-    pub fn validate_majik_timestamp(tsa: &MajikTimestamp) -> R {
+        /// Validate a typed TSA token and its embedded signer record.
+pub fn validate_majik_timestamp(tsa: &MajikTimestamp) -> R {
         let v = serde_json::to_value(tsa).map_err(|e| {
             MajikSignatureError::serialization_with_cause("Failed to serialize MajikTimestamp", e)
         })?;
