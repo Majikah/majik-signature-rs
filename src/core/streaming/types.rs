@@ -48,6 +48,13 @@ pub struct StreamingBatchFileInput<'a> {
     pub mime_type: Option<String>,
 }
 
+/// One file supplied to streaming MJKSMAP verification.
+pub struct StreamingBatchVerifyInput<'a> {
+    pub path: String,
+    pub reader: &'a mut dyn std::io::Read,
+    pub total_bytes: Option<u64>,
+}
+
 /// Progress associated with one file in a streaming batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamingBatchProgress {
