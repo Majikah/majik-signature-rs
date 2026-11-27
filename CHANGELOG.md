@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.0 - 2026-11-28
+- Align the core release version with the TypeScript package.
+- Match TypeScript and Rust streaming chunk-size limits at 64 KiB–256 MiB, retaining a 1 MiB default and 8 MiB automatic threshold.
+- Enforce declared total stream lengths, rejecting both truncated and overlong readers before accepting a digest.
+- Add regression coverage for expected-length validation and cross-path hash equivalence.
+
 ## 1.5.1 - 2026-11-27
 - Raise the configurable reader-hashing chunk ceiling to 128 MiB.
 - Allocate streaming hash buffers fallibly before reading input, returning a normal error on reservation failure.
