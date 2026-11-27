@@ -626,7 +626,7 @@ impl MajikSignatureMap {
         };
         let entries = validate_shape(obj)?;
         let created_at = obj.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string();
-        let data = MjksMapJSON { version: MJKSMAP_VERSION, created_at, entries };
+        let data = MjksMapJSON { version: MJKSMAP_SCHEMA_VERSION, created_at, entries };
         validate_mjksmap_cbor_size(&data)?;
         Ok(Self::new(data))
     }
