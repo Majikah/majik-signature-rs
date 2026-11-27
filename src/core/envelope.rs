@@ -55,7 +55,7 @@ impl Write for JsonSizeLimiter {
     }
 }
 
-fn validate_envelope_serialized_size<T: Serialize>(value: &T) -> R {
+fn validate_envelope_serialized_size<T: Serialize>(value: &T) -> R<()> {
     let mut limiter = JsonSizeLimiter::new(MAX_ENVELOPE_BYTES);
     serde_json::to_writer(&mut limiter, value).map_err(|error| {
         MajikSignatureError::serialization_with_cause(
