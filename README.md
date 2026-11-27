@@ -252,6 +252,20 @@ let signature = MajikSignature::sign_reader(&mut input, &key, None)?;
 MajikSignature::verify_reader accepts a reader and detached signature record.
 Existing byte-slice APIs and signature wire formats remain unchanged.
 
+### Streaming detached batch signing
+
+Use `MajikSignature::sign_batch_detached_stream()` with one `Read` source per
+input. `StreamingBatchFileInput` carries the unique relative path, reader,
+optional declared byte length, and MIME type. Files are consumed sequentially
+with one bounded read buffer, and the result uses the existing `BatchSignResult`
+map or separate-signature shape. `BatchStreamingOptions` supplies the chunk
+size, per-file byte limit, cancellation flag, and batch-aware progress callback.
+Set `BatchSignOptions.continue_on_error` to collect per-file failures and
+continue with remaining readers.
+
+The reader must expose the exact canonical unsigned bytes to sign. The low-level
+streaming batch API does not parse or strip existing embedded signature metadata.
+
 ## Rust API notes
 
 - **Synchronous.** `async`/`Promise`/`Blob`/`Uint8Array` become plain functions over `&[u8]` / `Vec<u8>`. A `Blob`'s declared type is passed as `mime_type` in the options structs.
